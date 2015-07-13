@@ -116,6 +116,9 @@ class KafkaService(Service):
 
         time.sleep(1)
         self.logger.info("Checking to see if topic was properly created...\n%s" % cmd)
+
+
+
         for line in self.describe_topic(topic_cfg["topic"]).split("\n"):
             self.logger.info(line)
 
@@ -199,29 +202,53 @@ class KafkaService(Service):
     def leader(self, topic, partition=0):
         """ Get the leader replica for the given topic and partition.
         """
-        cmd = "/opt/kafka/bin/kafka-run-class.sh kafka.tools.ZooKeeperMainWrapper -server %s " \
-              % self.zk.connect_setting()
-        cmd += "get /brokers/topics/%s/partitions/%d/state" % (topic, partition)
-        self.logger.debug(cmd)
+        topic_partition_data = self.zk_get_data("/brokers/topics/%s/partitions/%d/state" % (topic, partition))
 
-        node = self.nodes[0]
-        self.logger.debug("Querying zookeeper to find leader replica for topic %s: \n%s" % (cmd, topic))
-        partition_state = None
-        for line in node.account.ssh_capture(cmd):
-            match = re.match("^({.+})$", line)
-            if match is not None:
-                partition_state = match.groups()[0]
-                break
+        if topic_partition_data is None:
+            raise Exception("Error finding data for topic %s and partition %d." % (topic, partition))
+        self.logger.info(topic_partition_data)
 
-        if partition_state is None:
-            raise Exception("Error finding partition state for topic %s and partition %d." % (topic, partition))
-
-        partition_state = json.loads(partition_state)
-        self.logger.info(partition_state)
-
-        leader_idx = int(partition_state["leader"])
+        leader_idx = int(topic_partition_data["leader"])
         self.logger.info("Leader for topic %s and partition %d is now: %d" % (topic, partition, leader_idx))
         return self.get_node(leader_idx)
 
+    def controller(self):
+        """
+        Get the current controller
+        """
+        controller_data = self.zk_get_data("/controller")
+        if controller_data is None:
+            raise Exception("Error finding controller.")
+        self.logger.info(controller_data)
+
+        controller_idx = int(controller_data["brokerid"])
+        self.logger.info("Controller is: %d" % controller_idx)
+        controller_node = self.get_node(controller_idx)
+
+        if controller_node is None:
+            raise Exception("Found no node corresponding to the id: %d" % controller_idx)
+        return controller_node
+
+    def zk_get_data(self, path):
+        """
+        Get data from zookeeper on the given path. This method assumes the data is in JSON format.
+
+        :param path Zookeeper path to query for data
+        :param node optional node on which query will be run
+        """
+        cmd = "/opt/kafka/bin/kafka-run-class.sh kafka.tools.ZooKeeperMainWrapper -server %s get %s" % \
+              (self.zk.connect_setting(), path)
+        data = None
+        node = self.nodes[0]
+        for line in node.account.ssh_capture(cmd):
+            try:
+                data = json.loads(line)
+                break
+            except ValueError:
+                pass
+
+        return data
+
     def bootstrap_servers(self):
         return ','.join([node.account.hostname + ":9092" for node in self.nodes])
+
