@@ -31,6 +31,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 
 import static net.sourceforge.argparse4j.impl.Arguments.store;
 
@@ -70,13 +71,17 @@ public class VerifiableProducer {
     
     // Hook to trigger producing thread to stop sending messages
     private boolean stopProducing = false;
+    
+    // Timeout on producer.close() call
+    private long closeTimeoutSeconds;
 
     public VerifiableProducer(
-            Properties producerProps, String topic, int throughput, int maxMessages) {
+            Properties producerProps, String topic, int throughput, int maxMessages, long closeTimeoutSeconds) {
 
         this.topic = topic;
         this.throughput = throughput;
         this.maxMessages = maxMessages;
+        this.closeTimeoutSeconds = closeTimeoutSeconds;
         this.producer = new KafkaProducer<String, String>(producerProps);
     }
 
@@ -128,6 +133,15 @@ public class VerifiableProducer {
                 .metavar("ACKS")
                 .help("Acks required on each produced message. See Kafka docs on request.required.acks for details.");
 
+        parser.addArgument("--close-timeout")
+                .action(store())
+                .required(false)
+                .setDefault(10L)
+                .type(Long.class)
+                .metavar("CLOSE-TIMEOUT")
+                .dest("closeTimeoutSeconds")
+                .help("When SIGTERM is caught, wait at most this many seconds for unsent messages to flush before stopping the VerifiableProducer process.");
+
         return parser;
     }
   
@@ -137,12 +151,11 @@ public class VerifiableProducer {
         VerifiableProducer producer = null;
         
         try {
-            Namespace res;
-            res = parser.parseArgs(args);
-
+            Namespace res = parser.parseArgs(args);
             int maxMessages = res.getInt("maxMessages");
             String topic = res.getString("topic");
             int throughput = res.getInt("throughput");
+            long closeTimeoutSeconds = res.getLong("closeTimeoutSeconds");
 
             Properties producerProps = new Properties();
             producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, res.getString("brokerList"));
@@ -154,7 +167,7 @@ public class VerifiableProducer {
             // No producer retries
             producerProps.put("retries", "0");
 
-            producer = new VerifiableProducer(producerProps, topic, throughput, maxMessages);
+            producer = new VerifiableProducer(producerProps, topic, throughput, maxMessages, closeTimeoutSeconds);
         } catch (ArgumentParserException e) {
             if (args.length == 0) {
                 parser.printHelp();
@@ -184,7 +197,7 @@ public class VerifiableProducer {
   
     /** Close the producer to flush any remaining messages. */
     public void close() {
-        producer.close();
+        producer.close(this.closeTimeoutSeconds, TimeUnit.SECONDS);
     }
   
     /**
