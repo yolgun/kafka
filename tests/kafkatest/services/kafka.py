@@ -54,6 +54,14 @@ class KafkaService(Service):
                 topic_cfg["topic"] = topic
                 self.create_topic(topic_cfg)
 
+        # Sanity check - are the broker processes actually running?
+        for node in self.nodes:
+            for pid in self.pids(node):
+                if not node.account.alive(pid):
+                    raise Exception(
+                        "Expected Kafka process %s to be running on node %s, but found that the process is not alive." %
+                        (str(pid), str(node.account)))
+
     def start_node(self, node):
         props_file = self.render('kafka.properties', node=node, broker_id=self.idx(node))
         self.logger.info("kafka.properties:")
@@ -96,7 +104,7 @@ class KafkaService(Service):
         node.account.ssh("rm -rf /mnt/kafka-logs /mnt/kafka.properties /mnt/kafka.log /mnt/kafka.pid", allow_fail=False)
 
     def create_topic(self, topic_cfg):
-        node = self.nodes[0] # any node is fine here
+        node = self.nodes[0]  # any node is fine here
         self.logger.info("Creating topic %s with settings %s", topic_cfg["topic"], topic_cfg)
 
         cmd = "/opt/kafka/bin/kafka-topics.sh --zookeeper %(zk_connect)s --create "\
@@ -116,8 +124,6 @@ class KafkaService(Service):
 
         time.sleep(1)
         self.logger.info("Checking to see if topic was properly created...\n%s" % cmd)
-
-
 
         for line in self.describe_topic(topic_cfg["topic"]).split("\n"):
             self.logger.info(line)

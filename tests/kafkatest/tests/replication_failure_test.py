@@ -48,7 +48,7 @@ SOFT_KILL = "soft_kill"
 
 # node types
 LEADER = "leader"
-FOLLOWER = "follower"
+# FOLLOWER = "follower"
 CONTROLLER = "controller"
 
 
@@ -75,39 +75,33 @@ class ReplicationTest(Test):
                             "replication-factor": self.replication_factor,
                             "min.insync.replicas": 2}
                     }
-
-        self.topic = "topic1"  # We'll induce failures on this topic
+        self.topic_names = ["topic1", "topic2", "topic3"]
+        self.topic_to_fail = "topic1"  # We'll induce failures on this topic
 
         self.kafka = KafkaService(test_context, num_nodes=3, zk=self.zk, topics=self.topics)
         self.producer_throughput = 100000
-        self.num_producers = 1
-        self.num_consumers = 1
+        self.num_producers = 3
+        self.num_consumers = 3
 
-        self.producer = VerifiableProducer(self.test_context, self.num_producers, self.kafka, self.topic, throughput=self.producer_throughput)
-        self.consumer = ConsoleConsumer(self.test_context, self.num_consumers, self.kafka, self.topic, consumer_timeout_ms=3000)
+        self.producers = [VerifiableProducer(self.test_context, 1, self.kafka, topic, throughput=self.producer_throughput)
+                          for topic in self.topic_names]
+        self.consumers = [ConsoleConsumer(self.test_context, 1, self.kafka, topic, consumer_timeout_ms=3000)
+                          for topic in self.topic_names]
 
     def setUp(self):
         self.zk.start()
         self.kafka.start()
 
-    def min_cluster_size(self):
-        """Override this since we're adding services outside of the constructor"""
-        return super(ReplicationTest, self).min_cluster_size() + self.num_producers + self.num_consumers
-
-
     """
     TODO: variable ack
     TODO: variable compression
-    TODO: debug SOFT failure
-    TODO: produce/consume multiple topics
     TODO: actually verify created topics in kafka.py
-    TODO: on kafka.start(), verify that pids are alive
     """
 
-    # @parametrize(compression=True)
     # @parametrize(ack=1)
+    # @parametrize(compression=True)
     @matrix(failure=[SOFT_BOUNCE, HARD_BOUNCE, CLEAN_BOUNCE])
-    @matrix(node_type=[CONTROLLER, LEADER, FOLLOWER])
+    @matrix(node_type=[CONTROLLER, LEADER])
     def test_replication(self, failure="clean", node_type="leader", ack=-1, compression=False, num_bounce=1):
         """This is the top-level test template.
 
@@ -134,27 +128,26 @@ class ReplicationTest(Test):
 
         # Produce in a background thread while driving broker failures
         self.logger.debug("Producing messages...")
-        self.producer.start()
-        if not wait_until(lambda: self.producer.num_acked > 5, timeout_sec=5):
-            raise RuntimeError("Producer failed to start in a reasonable amount of time.")
+        self.start_producers()
 
         self.logger.debug("Driving failures...")
         self.drive_failures(failure, node_type)
         time.sleep(5)  # Keep on producing for a few more seconds
+        self.stop_producers()
 
-        self.producer.stop()
-
-        self.acked = self.producer.acked
-        self.not_acked = self.producer.not_acked
-        self.logger.info("num not acked: %d" % self.producer.num_not_acked)
-        self.logger.info("num acked:     %d" % self.producer.num_acked)
+        self.acked = [producer.acked for producer in self.producers]
+        self.not_acked = [producer.not_acked for producer in self.producers]
+        self.logger.info("num not acked on topic %s: %d" % (producer.topic, producer.num_not_acked))
+        self.logger.info("num acked on topic %s:     %d" % (producer.topic, producer.num_acked))
 
         # Consume all messages
         self.logger.debug("Consuming messages...")
-        self.consumer.start()
-        self.consumer.wait()
-        self.consumed = self.consumer.messages_consumed[1]
-        self.logger.info("num consumed:  %d" % len(self.consumed))
+        self.messages_consumed = []
+        for consumer in self.consumers:
+            consumer.start()
+            consumer.wait()
+            self.messages_consumed.append(consumer.messages_consumed[1])
+            self.logger.info("num consumed from topic %s:  %d" % (consumer.topic, len(self.messages_consumed[-1])))
 
         # Check produced vs consumed
         self.logger.debug("Validating...")
@@ -176,16 +169,28 @@ class ReplicationTest(Test):
         else:
             raise RuntimeError("Unsupported node type.")
 
-    def follower(self, topic, partition):
-        """Get a node which is has a replica for the given topic/partition but which is not the leader
-        Short-cut implementation - might be safer to actually query zookeeper.
-        """
-        leader = self.kafka.leader(topic, partition)
-        leader_idx = self.kafka.idx(leader)
+    def start_producers(self):
+        for producer in self.producers:
+            producer.start()
 
-        assert self.kafka.num_nodes > 1 and self.replication_factor == self.kafka.num_nodes
-        follow_idx = (leader_idx + 1) % self.kafka.num_nodes
-        return self.kafka.get_node(follow_idx)
+        for producer in self.producers:
+            if not wait_until(lambda: producer.num_acked > 5, timeout_sec=5):
+                raise RuntimeError("Producer failed to start in a reasonable amount of time: %s" % str(producer))
+
+    def stop_producers(self):
+        for producer in self.producers:
+            producer.stop()
+
+    # def follower(self, topic, partition):
+    #     """Get a node which is has a replica for the given topic/partition but which is not the leader
+    #     Short-cut implementation - might be safer to actually query zookeeper.
+    #     """
+    #     leader = self.kafka.leader(topic, partition)
+    #     leader_idx = self.kafka.idx(leader)
+    #
+    #     assert self.kafka.num_nodes > 1 and self.replication_factor == self.kafka.num_nodes
+    #     follow_idx = (leader_idx + 1) % self.kafka.num_nodes
+    #     return self.kafka.get_node(follow_idx)
 
     def drive_failures(self, failure, node_type):
 
@@ -198,7 +203,7 @@ class ReplicationTest(Test):
 
     def bounce(self, failure, node_type, num_bounce):
         for i in range(num_bounce):
-            node_to_signal = self.fetch_broker_node(self.topic, 0, node_type)
+            node_to_signal = self.fetch_broker_node(self.topic_to_fail, 0, node_type)
 
             if failure == CLEAN_BOUNCE or failure == HARD_BOUNCE:
                 self.kafka.restart_node(node_to_signal, wait_sec=5, clean_shutdown=(failure == CLEAN_BOUNCE))
@@ -212,7 +217,7 @@ class ReplicationTest(Test):
             time.sleep(6)
 
     def kill(self, failure, node_type):
-        node_to_signal = self.fetch_broker_node(self.topic, 0, node_type)
+        node_to_signal = self.fetch_broker_node(self.topic_to_fail, 0, node_type)
 
         if failure == CLEAN_KILL or failure == HARD_KILL:
             self.kafka.stop_node(node_to_signal, clean_shutdown=(failure == CLEAN_KILL))
@@ -226,16 +231,24 @@ class ReplicationTest(Test):
 
         success = True
         msg = ""
+        for i in range(len(self.topic_names)):
+            consumed = self.messages_consumed[i]
+            acked = self.acked[i]
+            topic = self.topic_names[i]
 
-        if len(set(self.consumed)) != len(self.consumed):
-            # There are duplicates. This is ok, so report it but don't fail the test
-            msg += "There are duplicate messages in the log\n"
+            if len(consumed) == 0:
+                msg += "No messages consumed under topic $s" % topic
+                success = False
 
-        if not set(self.consumed).issuperset(set(self.acked)):
-            # Every acked message must appear in the logs. I.e. consumed messages must be superset of acked messages.
-            acked_minus_consumed = set(self.producer.acked) - set(self.consumed)
-            success = False
-            msg += "At least one acked message did not appear in the consumed messages. acked_minus_consumed: " + str(acked_minus_consumed)
+            if len(set(consumed)) != len(consumed):
+                # There are duplicates. This is ok, so report it but don't fail the test
+                msg += "There are duplicate messages in the log\n"
+
+            if not set(consumed).issuperset(set(acked)):
+                # Every acked message must appear in the logs. I.e. consumed messages must be superset of acked messages.
+                acked_minus_consumed = set(acked) - set(consumed)
+                success = False
+                msg += "At least one acked message did not appear in the consumed messages for topic %s. acked_minus_consumed: %s" % (topic, str(acked_minus_consumed))
 
         if not success:
             # Collect all the data logs if there was a failure
