@@ -23,7 +23,6 @@ from kafkatest.services.kafka import KafkaService
 from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.console_consumer import ConsoleConsumer
 
-import signal
 import time
 
 
@@ -48,7 +47,6 @@ SOFT_KILL = "soft_kill"
 
 # node types
 LEADER = "leader"
-# FOLLOWER = "follower"
 CONTROLLER = "controller"
 
 
@@ -92,17 +90,11 @@ class ReplicationTest(Test):
         self.zk.start()
         self.kafka.start()
 
-    """
-    TODO: variable ack
-    TODO: variable compression
-    TODO: actually verify created topics in kafka.py
-    """
-
-    # @parametrize(ack=1)
-    # @parametrize(compression=True)
+    @parametrize(producer_props={"acks": "1"})
+    @parametrize(producer_props={"compression.type": "gzip"})
     @matrix(failure=[SOFT_BOUNCE, HARD_BOUNCE, CLEAN_BOUNCE])
     @matrix(node_type=[CONTROLLER, LEADER])
-    def test_replication(self, failure="clean", node_type="leader", ack=-1, compression=False, num_bounce=1):
+    def test_replication(self, failure=CLEAN_BOUNCE, node_type=LEADER, producer_props=None, num_bounce=1):
         """This is the top-level test template.
 
         The steps are:
@@ -125,6 +117,8 @@ class ReplicationTest(Test):
 
         """
         self.num_bounce = num_bounce
+        for producer in self.producers:
+            producer.producer_props = producer_props.copy()
 
         # Produce in a background thread while driving broker failures
         self.logger.debug("Producing messages...")
@@ -162,8 +156,6 @@ class ReplicationTest(Test):
 
         if node_type == LEADER:
             return self.kafka.leader(topic=topic, partition=partition)
-        elif node_type == FOLLOWER:
-            return self.follower(topic, partition)
         elif node_type == CONTROLLER:
             return self.kafka.controller()
         else:
@@ -180,17 +172,6 @@ class ReplicationTest(Test):
     def stop_producers(self):
         for producer in self.producers:
             producer.stop()
-
-    # def follower(self, topic, partition):
-    #     """Get a node which is has a replica for the given topic/partition but which is not the leader
-    #     Short-cut implementation - might be safer to actually query zookeeper.
-    #     """
-    #     leader = self.kafka.leader(topic, partition)
-    #     leader_idx = self.kafka.idx(leader)
-    #
-    #     assert self.kafka.num_nodes > 1 and self.replication_factor == self.kafka.num_nodes
-    #     follow_idx = (leader_idx + 1) % self.kafka.num_nodes
-    #     return self.kafka.get_node(follow_idx)
 
     def drive_failures(self, failure, node_type):
 

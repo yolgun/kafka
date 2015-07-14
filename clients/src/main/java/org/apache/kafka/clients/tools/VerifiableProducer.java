@@ -27,6 +27,7 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.json.simple.JSONObject;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -34,6 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static net.sourceforge.argparse4j.impl.Arguments.store;
 
 import net.sourceforge.argparse4j.ArgumentParsers;
+import net.sourceforge.argparse4j.impl.Arguments;
 import net.sourceforge.argparse4j.inf.ArgumentParser;
 import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
@@ -130,6 +132,14 @@ public class VerifiableProducer {
                 .choices(0, 1, -1)
                 .metavar("ACKS")
                 .help("Acks required on each produced message. See Kafka docs on request.required.acks for details.");
+        
+        parser.addArgument("--producer-prop")
+                .action(Arguments.append())
+                .required(false)
+                .type(String.class)
+                .dest("userSpecifiedProducerProps")
+                .metavar("PRODUCER-PROP")
+                .help("Any custom producer properties of the form key=val.");
 
         parser.addArgument("--close-timeout")
                 .action(store())
@@ -154,7 +164,7 @@ public class VerifiableProducer {
             String topic = res.getString("topic");
             int throughput = res.getInt("throughput");
             long closeTimeoutSeconds = res.getLong("closeTimeoutSeconds");
-
+            
             Properties producerProps = new Properties();
             producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, res.getString("brokerList"));
             producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
@@ -164,8 +174,24 @@ public class VerifiableProducer {
             producerProps.put(ProducerConfig.ACKS_CONFIG, Integer.toString(res.getInt("acks")));
             // No producer retries
             producerProps.put("retries", "0");
+            
+            // Properties specified using the --producer-prop key=val format override
+            // other properties
+            List<String> userSpecifiedProducerProps = res.getList("userSpecifiedProducerProps");
+            for (String prop: userSpecifiedProducerProps) {
+                int index = prop.indexOf('=');
+                if (index < 0 || index == prop.length() - 1) {
+                    throw new IllegalArgumentException(
+                            "Invalid format for producer prop: " + prop);
+                }
+                
+                String key = prop.substring(0, index);
+                String val = prop.substring(index + 1, prop.length());
+                producerProps.put(key, val);
+            }
 
-            producer = new VerifiableProducer(producerProps, topic, throughput, maxMessages, closeTimeoutSeconds);
+            producer = new VerifiableProducer(
+                    producerProps, topic, throughput, maxMessages, closeTimeoutSeconds);
         } catch (ArgumentParserException e) {
             if (args.length == 0) {
                 parser.printHelp();

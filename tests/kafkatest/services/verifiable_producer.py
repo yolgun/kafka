@@ -26,7 +26,7 @@ class VerifiableProducer(BackgroundThreadService):
             "collect_default": True}
     }
 
-    def __init__(self, context, num_nodes, kafka, topic, max_messages=-1, throughput=100000, close_timeout_sec=60):
+    def __init__(self, context, num_nodes, kafka, topic, max_messages=-1, throughput=100000, close_timeout_sec=60, producer_props=None):
         super(VerifiableProducer, self).__init__(context, num_nodes)
 
         self.kafka = kafka
@@ -34,6 +34,7 @@ class VerifiableProducer(BackgroundThreadService):
         self.max_messages = max_messages
         self.throughput = throughput
         self.close_timeout_sec = close_timeout_sec
+        self.producer_props = producer_props  # Overrides for Kafka producer settings
 
         self.acked_values = []
         self.not_acked_values = []
@@ -65,6 +66,10 @@ class VerifiableProducer(BackgroundThreadService):
         if self.throughput > 0:
             cmd += " --throughput %s" % str(self.throughput)
         cmd += " --close-timeout %s" % str(self.close_timeout_sec)
+
+        if self.producer_props is not None:
+            for key in self.producer_props:
+                cmd += " --producer-prop %s=%s" % (key, str(self.producer_props[key]))
 
         cmd += " 2>> /mnt/producer.log | tee -a /mnt/producer.log &"
         return cmd
