@@ -79,7 +79,7 @@ class ReplicationTest(Test):
         self.topic = "topic1"  # We'll induce failures on this topic
 
         self.kafka = KafkaService(test_context, num_nodes=3, zk=self.zk, topics=self.topics)
-        self.producer_throughput = 4
+        self.producer_throughput = 100000
         self.num_producers = 1
         self.num_consumers = 1
 
@@ -101,12 +101,13 @@ class ReplicationTest(Test):
     TODO: debug SOFT failure
     TODO: produce/consume multiple topics
     TODO: actually verify created topics in kafka.py
+    TODO: on kafka.start(), verify that pids are alive
     """
 
     # @parametrize(compression=True)
     # @parametrize(ack=1)
-    @matrix(failure=[SOFT_BOUNCE])
-    @matrix(node_type=[LEADER])
+    @matrix(failure=[SOFT_BOUNCE, HARD_BOUNCE, CLEAN_BOUNCE])
+    @matrix(node_type=[CONTROLLER, LEADER, FOLLOWER])
     def test_replication(self, failure="clean", node_type="leader", ack=-1, compression=False, num_bounce=1):
         """This is the top-level test template.
 
@@ -139,6 +140,8 @@ class ReplicationTest(Test):
 
         self.logger.debug("Driving failures...")
         self.drive_failures(failure, node_type)
+        time.sleep(5)  # Keep on producing for a few more seconds
+
         self.producer.stop()
 
         self.acked = self.producer.acked
@@ -200,9 +203,9 @@ class ReplicationTest(Test):
             if failure == CLEAN_BOUNCE or failure == HARD_BOUNCE:
                 self.kafka.restart_node(node_to_signal, wait_sec=5, clean_shutdown=(failure == CLEAN_BOUNCE))
             elif failure == SOFT_BOUNCE:
-                self.kafka.signal_node(node_to_signal, signal.SIGSTOP)
-                time.sleep(5)
-                self.kafka.signal_node(node_to_signal, signal.SIGCONT)
+                self.kafka.signal_node(node_to_signal, "SIGSTOP")
+                time.sleep(20)
+                self.kafka.signal_node(node_to_signal, "SIGCONT")
             else:
                 raise RuntimeError("Invalid failure type.")
 
@@ -214,7 +217,7 @@ class ReplicationTest(Test):
         if failure == CLEAN_KILL or failure == HARD_KILL:
             self.kafka.stop_node(node_to_signal, clean_shutdown=(failure == CLEAN_KILL))
         elif failure == SOFT_KILL:
-            self.kafka.signal_node(node_to_signal, signal.SIGSTOP)
+            self.kafka.signal_node(node_to_signal, "SIGSTOP")
         else:
             raise RuntimeError("Invalid failure type")
 

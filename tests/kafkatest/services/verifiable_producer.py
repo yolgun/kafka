@@ -23,16 +23,17 @@ class VerifiableProducer(BackgroundThreadService):
     logs = {
         "producer_log": {
             "path": "/mnt/producer.log",
-            "collect_default": False}
+            "collect_default": True}
     }
 
-    def __init__(self, context, num_nodes, kafka, topic, max_messages=-1, throughput=100000):
+    def __init__(self, context, num_nodes, kafka, topic, max_messages=-1, throughput=100000, close_timeout_sec=60):
         super(VerifiableProducer, self).__init__(context, num_nodes)
 
         self.kafka = kafka
         self.topic = topic
         self.max_messages = max_messages
         self.throughput = throughput
+        self.close_timeout_sec = close_timeout_sec
 
         self.acked_values = []
         self.not_acked_values = []
@@ -63,6 +64,7 @@ class VerifiableProducer(BackgroundThreadService):
             cmd += " --max-messages %s" % str(self.max_messages)
         if self.throughput > 0:
             cmd += " --throughput %s" % str(self.throughput)
+        cmd += " --close-timeout %s" % str(self.close_timeout_sec)
 
         cmd += " 2>> /mnt/producer.log | tee -a /mnt/producer.log &"
         return cmd

@@ -29,6 +29,7 @@ import org.json.simple.JSONObject;
 import java.io.IOException;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static net.sourceforge.argparse4j.impl.Arguments.store;
 
@@ -67,7 +68,7 @@ public class VerifiableProducer {
     private long throughput;
     
     // Hook to trigger producing thread to stop sending messages
-    private boolean stopProducing = false;
+    private AtomicBoolean stopProducing = new AtomicBoolean(false);
     
     // Timeout on producer.close() call
     private long closeTimeoutSeconds;
@@ -206,7 +207,7 @@ public class VerifiableProducer {
     
         JSONObject obj = new JSONObject();
         obj.put("class", this.getClass().toString());
-        obj.put("name", "producer_send_error");
+        obj.put("name", "f_error");
         
         obj.put("time_ms", nowMs);
         obj.put("exception", e.getClass().toString());
@@ -246,6 +247,11 @@ public class VerifiableProducer {
     
         public void onCompletion(RecordMetadata recordMetadata, Exception e) {
             synchronized (System.out) {
+                if (VerifiableProducer.this.stopProducing.get()) {
+                    // Stop writing to stdout
+                    return;
+                }
+                
                 if (e == null) {
                     VerifiableProducer.this.numAcked++;
                     System.out.println(successString(recordMetadata, this.key, this.value, System.currentTimeMillis()));
@@ -266,7 +272,7 @@ public class VerifiableProducer {
             @Override
             public void run() {
                 // Trigger main thread to stop producing messages
-                producer.stopProducing = true;
+                producer.stopProducing.set(true);
                 
                 // Flush any remaining messages
                 producer.close();
@@ -287,7 +293,7 @@ public class VerifiableProducer {
 
         ThroughputThrottler throttler = new ThroughputThrottler(producer.throughput, startMs);
         for (int i = 0; i < producer.maxMessages || infinite; i++) {
-            if (producer.stopProducing) {
+            if (producer.stopProducing.get()) {
                 break;
             }
             long sendStartMs = System.currentTimeMillis();
