@@ -16,7 +16,7 @@
 from ducktape.services.background_thread import BackgroundThreadService
 
 import json
-
+import re
 
 class VerifiableProducer(BackgroundThreadService):
 
@@ -26,15 +26,15 @@ class VerifiableProducer(BackgroundThreadService):
             "collect_default": True}
     }
 
-    def __init__(self, context, num_nodes, kafka, topic, max_messages=-1, throughput=100000, close_timeout_sec=60, producer_props=None):
+    def __init__(self, context, num_nodes, kafka, topic, max_messages=-1, throughput=100000, close_timeout_ms=None, configs={}):
         super(VerifiableProducer, self).__init__(context, num_nodes)
 
         self.kafka = kafka
         self.topic = topic
         self.max_messages = max_messages
         self.throughput = throughput
-        self.close_timeout_sec = close_timeout_sec
-        self.producer_props = producer_props  # Overrides for Kafka producer settings
+        self.close_timeout_ms = close_timeout_ms
+        self.configs = configs  # Overrides for Kafka producer settings
 
         self.acked_values = []
         self.not_acked_values = []
@@ -50,12 +50,8 @@ class VerifiableProducer(BackgroundThreadService):
             if data is not None:
 
                 with self.lock:
-                    if data["name"] == "producer_send_error":
-                        data["node"] = idx
-                        self.not_acked_values.append(int(data["value"]))
-
-                    elif data["name"] == "producer_send_success":
-                        self.acked_values.append(int(data["value"]))
+                    if "v" in data.keys():
+                        self.acked_values.append(int(data["v"]))
 
     @property
     def start_cmd(self):
@@ -65,11 +61,12 @@ class VerifiableProducer(BackgroundThreadService):
             cmd += " --max-messages %s" % str(self.max_messages)
         if self.throughput > 0:
             cmd += " --throughput %s" % str(self.throughput)
-        cmd += " --close-timeout %s" % str(self.close_timeout_sec)
 
-        if self.producer_props is not None:
-            for key in self.producer_props:
-                cmd += " --producer-prop %s=%s" % (key, str(self.producer_props[key]))
+        if self.close_timeout_ms is not None:
+            cmd += " --close-timeout %s" % str(self.close_timeout_ms)
+
+        for key in self.configs:
+            cmd += " --config %s=%s" % (key, str(self.configs[key]))
 
         cmd += " 2>> /mnt/producer.log | tee -a /mnt/producer.log &"
         return cmd

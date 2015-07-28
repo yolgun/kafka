@@ -23,27 +23,14 @@ from kafkatest.services.kafka import KafkaService
 from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.console_consumer import ConsoleConsumer
 
+from kafkatest.process_signal import SIGTERM, SIGKILL, SIGSTOP
+
+from concurrent import futures
 import time
 
-
-"""
-3 brokers, 3 topics, 3 partitions, 3 replicas on each topic
-min.insync.replicas == 2
-ack -1
-failures: [leader, follower, controller] X [clean, hard, soft]
-One test cases with with ack 1
-One test case with compression toggled on
-
-"""
-
-# Failure types
-CLEAN_BOUNCE = "clean_bounce"
-HARD_BOUNCE = "hard_bounce"
-SOFT_BOUNCE = "soft_bounce"
-
-CLEAN_KILL = "clean_kill"
-HARD_KILL = "hard_kill"
-SOFT_KILL = "soft_kill"
+# Death "permanence"
+BOUNCE = "bounce"  # Kill and revive
+KILL = "kill"      # Kill without reviving
 
 # node types
 LEADER = "leader"
@@ -53,35 +40,38 @@ CONTROLLER = "controller"
 class ReplicationTest(Test):
     """Replication tests.
     These tests verify that replication provides simple durability guarantees by checking that data acked by
-    brokers is still available for consumption in the face of various failure scenarios."""
+    brokers is still available for consumption in the face of various failure scenarios.
+
+    Each test produces to three separate topics while driving various kinds of failure on a particular topic and partition.
+    This exercises replication and leader/controller failover while producing across multiple topics, each with multiple partitions.
+
+    Failures are induced on either the leader of a topic/partition or on the controller. As a consequence of the
+    way brokers distribute leaders across the broker cluster, this will have the side effect of exercising
+    failure of followers as wel..
+
+    We then validate by consuming all messages from each topic, and checking that every acked message shows up in
+    the downstream consumer for each topic.
+    """
 
     def __init__(self, test_context):
         super(ReplicationTest, self).__init__(test_context=test_context)
 
-        self.replication_factor = 3
         self.zk = ZookeeperService(test_context, num_nodes=1)
-        self.topics = {"topic1": {
-                            "partitions": 3,
-                            "replication-factor": self.replication_factor,
-                            "min.insync.replicas": 2},
-                       "topic2": {
-                            "partitions": 3,
-                            "replication-factor": self.replication_factor,
-                            "min.insync.replicas": 2},
-                       "topic3": {
-                            "partitions": 3,
-                            "replication-factor": self.replication_factor,
-                            "min.insync.replicas": 2}
-                    }
+
+        # Important to disable unclean leader election
+        topic_config = {"partitions": 3, "replication-factor": 3,
+                        "configs": {"min.insync.replicas": 2, "unclean.leader.election.enable": "false"}}
         self.topic_names = ["topic1", "topic2", "topic3"]
+        self.topics = {topic: topic_config.copy() for topic in self.topic_names}
         self.topic_to_fail = "topic1"  # We'll induce failures on this topic
 
         self.kafka = KafkaService(test_context, num_nodes=3, zk=self.zk, topics=self.topics)
-        self.producer_throughput = 100000
-        self.num_producers = 3
-        self.num_consumers = 3
+        self.producer_throughput = 10000
 
-        self.producers = [VerifiableProducer(self.test_context, 1, self.kafka, topic, throughput=self.producer_throughput)
+        self.producers = [VerifiableProducer(self.test_context, 1, self.kafka, topic,
+                                             throughput=self.producer_throughput,
+                                             configs={"acks": -1})
+                                             # configs={"acks": -1, "batch.size": 1000, "buffer.memory": 10000})
                           for topic in self.topic_names]
         self.consumers = [ConsoleConsumer(self.test_context, 1, self.kafka, topic, consumer_timeout_ms=3000)
                           for topic in self.topic_names]
@@ -90,11 +80,13 @@ class ReplicationTest(Test):
         self.zk.start()
         self.kafka.start()
 
-    @parametrize(producer_props={"acks": "1"})
-    @parametrize(producer_props={"compression.type": "gzip"})
-    @matrix(failure=[SOFT_BOUNCE, HARD_BOUNCE, CLEAN_BOUNCE])
+    @parametrize(configs={"acks": "1"})
+    @parametrize(configs={"compression.type": "gzip"})
+    @matrix(failure=[SIGKILL, SIGTERM, SIGSTOP])
     @matrix(node_type=[CONTROLLER, LEADER])
-    def test_replication(self, failure=CLEAN_BOUNCE, node_type=LEADER, producer_props=None, num_bounce=1):
+    @matrix(failure_permanence=[BOUNCE, KILL])
+    def test_replication(self, failure=SIGTERM, failure_permanence=BOUNCE,
+                         node_type=LEADER, configs={}, num_bounce=4):
         """This is the top-level test template.
 
         The steps are:
@@ -118,21 +110,18 @@ class ReplicationTest(Test):
         """
         self.num_bounce = num_bounce
         for producer in self.producers:
-            producer.producer_props = producer_props.copy()
+            producer.configs.update(configs.copy())
 
         # Produce in a background thread while driving broker failures
         self.logger.debug("Producing messages...")
         self.start_producers()
 
         self.logger.debug("Driving failures...")
-        self.drive_failures(failure, node_type)
-        time.sleep(5)  # Keep on producing for a few more seconds
+
+        self.drive_failures(failure, failure_permanence, node_type)
         self.stop_producers()
 
         self.acked = [producer.acked for producer in self.producers]
-        self.not_acked = [producer.not_acked for producer in self.producers]
-        self.logger.info("num not acked on topic %s: %d" % (producer.topic, producer.num_not_acked))
-        self.logger.info("num acked on topic %s:     %d" % (producer.topic, producer.num_acked))
 
         # Consume all messages
         self.logger.debug("Consuming messages...")
@@ -141,23 +130,26 @@ class ReplicationTest(Test):
             consumer.start()
             consumer.wait()
             self.messages_consumed.append(consumer.messages_consumed[1])
-            self.logger.info("num consumed from topic %s:  %d" % (consumer.topic, len(self.messages_consumed[-1])))
 
         # Check produced vs consumed
         self.logger.debug("Validating...")
         success, msg = self.validate()
 
         if not success:
-            self.mark_for_collect(self.producer)
+            for producer in self.producers:
+                self.mark_for_collect(producer)
 
         assert success, msg
 
     def fetch_broker_node(self, topic, partition, node_type):
-
         if node_type == LEADER:
-            return self.kafka.leader(topic=topic, partition=partition)
+            leader = self.kafka.leader(topic=topic, partition=partition)
+            self.logger.info("Leader for topic %s and partition %d is currently: %d" % (topic, partition, self.kafka.idx(leader)))
+            return leader
         elif node_type == CONTROLLER:
-            return self.kafka.controller()
+            controller = self.kafka.controller()
+            self.logger.info("Controller is currently: %d" % (self.kafka.idx(controller)))
+            return controller
         else:
             raise RuntimeError("Unsupported node type.")
 
@@ -170,42 +162,52 @@ class ReplicationTest(Test):
                 raise RuntimeError("Producer failed to start in a reasonable amount of time: %s" % str(producer))
 
     def stop_producers(self):
-        for producer in self.producers:
-            producer.stop()
+        stop_futures = []
+        with futures.ThreadPoolExecutor(max_workers=len(self.topic_names)) as executor:
+            for producer in self.producers:
+                stop_futures.append(executor.submit(producer.stop))
 
-    def drive_failures(self, failure, node_type):
+            def done():
+                """:return True iff all futures are done."""
+                done_futures = [f.done() for f in stop_futures]
+                return reduce(lambda x, y: x and y, done_futures, True)
 
-        if failure in {SOFT_KILL, HARD_KILL, CLEAN_KILL}:
-            self.kill(failure, node_type)
-        elif failure in {SOFT_BOUNCE, HARD_BOUNCE, CLEAN_BOUNCE}:
+            if not wait_until(lambda: done(), timeout_sec=120, backoff_sec=1):
+                raise RuntimeError("Producers did not stop in a reasonable amount of time.")
+
+    def drive_failures(self, failure, failure_permanence, node_type):
+
+        if failure_permanence == KILL:
+            node_to_signal = self.fetch_broker_node(self.topic_to_fail, 0, node_type)
+            self.kafka.signal_node(node_to_signal, failure)
+
+        elif failure_permanence == BOUNCE:
             self.bounce(failure, node_type, self.num_bounce)
         else:
             raise RuntimeError("Invalid failure type")
 
-    def bounce(self, failure, node_type, num_bounce):
+    def bounce(self, signal, node_type, num_bounce):
+
         for i in range(num_bounce):
             node_to_signal = self.fetch_broker_node(self.topic_to_fail, 0, node_type)
 
-            if failure == CLEAN_BOUNCE or failure == HARD_BOUNCE:
-                self.kafka.restart_node(node_to_signal, wait_sec=5, clean_shutdown=(failure == CLEAN_BOUNCE))
-            elif failure == SOFT_BOUNCE:
-                self.kafka.signal_node(node_to_signal, "SIGSTOP")
-                time.sleep(20)
-                self.kafka.signal_node(node_to_signal, "SIGCONT")
-            else:
-                raise RuntimeError("Invalid failure type.")
+            leader_or_controller_change = \
+                lambda: node_to_signal != self.fetch_broker_node(self.topic_to_fail, 0, node_type)
 
-            time.sleep(6)
+            self.kafka.bounce_node(
+                node_to_signal, signal=signal, condition=leader_or_controller_change,
+                condition_timeout_sec=30, condition_backoff_sec=.25)
 
-    def kill(self, failure, node_type):
+            # time.sleep(5)
+
+    def kill_permanently(self, failure, node_type):
+        """Fail by sending a signal to the process, but don't revive."""
         node_to_signal = self.fetch_broker_node(self.topic_to_fail, 0, node_type)
+        self.kafka.signal_node(node_to_signal, failure)
+        num_acked = self.producers[0].num_acked
 
-        if failure == CLEAN_KILL or failure == HARD_KILL:
-            self.kafka.stop_node(node_to_signal, clean_shutdown=(failure == CLEAN_KILL))
-        elif failure == SOFT_KILL:
-            self.kafka.signal_node(node_to_signal, "SIGSTOP")
-        else:
-            raise RuntimeError("Invalid failure type")
+        # Make sure that writes are eventually able to go through again after the failure
+        wait_until(lambda: self.producers[0].num_acked > num_acked + 100, timeout_sec=6)
 
     def validate(self):
         """Check that produced messages were consumed."""
@@ -218,7 +220,7 @@ class ReplicationTest(Test):
             topic = self.topic_names[i]
 
             if len(consumed) == 0:
-                msg += "No messages consumed under topic $s" % topic
+                msg += "No messages consumed under topic %s" % topic
                 success = False
 
             if len(set(consumed)) != len(consumed):
@@ -229,14 +231,12 @@ class ReplicationTest(Test):
                 # Every acked message must appear in the logs. I.e. consumed messages must be superset of acked messages.
                 acked_minus_consumed = set(acked) - set(consumed)
                 success = False
-                msg += "At least one acked message did not appear in the consumed messages for topic %s. acked_minus_consumed: %s" % (topic, str(acked_minus_consumed))
+                msg += "At least one acked message did not appear in the consumed messages for topic %s: " % topic
+                msg += "num acked from topic %s: %d. " % (topic, len(acked))
+                msg += "num consumed from topic %s:  %d. " % (topic, len(consumed))
 
         if not success:
             # Collect all the data logs if there was a failure
             self.mark_for_collect(self.kafka)
 
         return success, msg
-
-
-
-
