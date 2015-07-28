@@ -84,7 +84,7 @@ class KafkaService(Service):
         self.logger.debug(props_file)
         node.account.create_file("/mnt/kafka.properties", props_file)
 
-        cmd = "export LOG_DIR=/mnt/kafka-operational-logs && "
+        cmd = "export LOG_DIR=/mnt/kafka-operational-logs/; "
         cmd += "/opt/kafka/bin/kafka-server-start.sh /mnt/kafka.properties 1>> /mnt/kafka.log 2>> /mnt/kafka.log & echo $! > /mnt/kafka.pid"
         self.logger.debug("Attempting to start KafkaService on %s" % str(node.account))
 
