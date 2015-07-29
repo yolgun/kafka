@@ -38,7 +38,7 @@ from kafkatest.services.console_consumer import ConsoleConsumer
 
 import time
 
-from kafkatest.process_signal import SIGSTOP, SIGCONT
+from kafkatest.process_signal import SIGSTOP, SIGCONT, SIGKILL
 from concurrent import futures
 
 # Death "permanence"
@@ -118,7 +118,7 @@ class SimpleNetworkPartitionTest(Test):
 
             # Kill leader and do not revive (clean kill is fine)
             leader_pid = self.kafka.pids(self.leader)[0]
-            self.kafka.stop_node(self.leader, clean_shutdown=False)
+            self.kafka.signal_node(self.leader, sig=SIGKILL)
             wait_until(lambda: not self.leader.account.alive(leader_pid), timeout_sec=3, backoff_sec=.25)
 
             # self.kafka.signal_node(self.follower, sig=SIGCONT)

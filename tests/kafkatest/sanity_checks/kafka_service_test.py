@@ -44,10 +44,12 @@ class KafkaServiceTest(Test):
             assert len(self.kafka.pids(node)) == 1
 
     def test_stop_node(self):
+        """Check that stopping a node works, even with a SIGSTOPed process."""
         self.zk.start()
         self.kafka.start()
 
         node = self.kafka.nodes[0]
+        self.kafka.signal_node(node, sig=SIGSTOP)
         self.kafka.stop_node(self.kafka.nodes[0])
 
         if not wait_until(lambda: self.kafka.dead(node), timeout_sec=5, backoff_sec=.5):

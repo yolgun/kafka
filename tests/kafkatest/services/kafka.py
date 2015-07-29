@@ -64,13 +64,36 @@ class KafkaService(Service):
                 topic_cfg["topic"] = topic
                 self.create_topic(topic_cfg)
 
+    def stop_node(self, node):
+        pids = self.pids(node)
+
+        for pid in pids:
+            node.account.signal(pid, SIGTERM, allow_fail=False)
+
+        if wait_until(lambda: self.dead(node), timeout_sec=5, backoff_sec=.5):
+            return
+
+        # SIGTERM didn't succeed - try the more aggressive SIGKILL
+        for pid in pids:
+            node.account.signal(pid, SIGKILL, allow_fail=False)
+
+        if not wait_until(lambda: self.dead(node), timeout_sec=5, backoff_sec=.5):
+            raise RuntimeError("Failed to kill Kafka process on " + str(node.account))
+
+    def clean_node(self, node):
+        node.account.ssh(
+            "rm -rf /mnt/*",
+            allow_fail=False)
+
     def all_alive(self):
+        """Are all nodes in this cluster alive and communicating?"""
         for node in self.nodes:
             if not self.alive(node):
                 return False
         return True
 
     def alive(self, node):
+        """Is the kafka process on this node awake and ready to communicate?"""
         try:
             # Try opening tcp connection and immediately closing by sending EOF
             node.account.ssh("echo EOF | nc %s %d" % (node.account.hostname, 9092), allow_fail=False)
@@ -79,6 +102,7 @@ class KafkaService(Service):
             return False
 
     def dead(self, node):
+        """Test of 'deadness' of a node. This is often not the same as 'not alive'."""
         return len(self.pids(node)) == 0
 
     def start_node(self, node):
@@ -114,18 +138,6 @@ class KafkaService(Service):
     def signal_leader(self, topic, partition=0, sig=SIGTERM):
         leader = self.leader(topic, partition)
         self.signal_node(leader, sig)
-
-    def stop_node(self, node, clean_shutdown=True):
-        pids = self.pids(node)
-        sig = SIGTERM if clean_shutdown else SIGKILL
-
-        for pid in pids:
-            node.account.signal(pid, sig, allow_fail=False)
-
-    def clean_node(self, node):
-        node.account.ssh(
-            "rm -rf /mnt/*",
-            allow_fail=False)
 
     def create_topic(self, topic_cfg):
         node = self.nodes[0]  # any node is fine here
