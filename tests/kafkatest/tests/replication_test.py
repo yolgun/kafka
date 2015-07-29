@@ -26,7 +26,6 @@ from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.process_signal import SIGTERM, SIGKILL, SIGSTOP
 
 from concurrent import futures
-import time
 
 # Death "permanence"
 BOUNCE = "bounce"  # Kill and revive
@@ -70,8 +69,9 @@ class ReplicationTest(Test):
 
         self.producers = [VerifiableProducer(self.test_context, 1, self.kafka, topic,
                                              throughput=self.producer_throughput,
-                                             configs={"acks": -1})
-                                             # configs={"acks": -1, "batch.size": 1000, "buffer.memory": 10000})
+                                             # close_timeout_ms=60000,
+                                             # configs={"acks": -1})
+                                             configs={"acks": -1, "batch.size": 100, "buffer.memory": 1000})
                           for topic in self.topic_names]
         self.consumers = [ConsoleConsumer(self.test_context, 1, self.kafka, topic, consumer_timeout_ms=3000)
                           for topic in self.topic_names]
@@ -80,11 +80,11 @@ class ReplicationTest(Test):
         self.zk.start()
         self.kafka.start()
 
-    @parametrize(configs={"acks": "1"})
+    # @parametrize(configs={"acks": "1"})
     @parametrize(configs={"compression.type": "gzip"})
-    @matrix(failure=[SIGKILL, SIGTERM, SIGSTOP])
-    @matrix(node_type=[CONTROLLER, LEADER])
-    @matrix(failure_permanence=[BOUNCE, KILL])
+    @matrix(failure=[SIGTERM, SIGSTOP, SIGKILL])
+    @matrix(node_type=[LEADER, CONTROLLER])
+    # @matrix(failure_permanence=[BOUNCE, KILL])
     def test_replication(self, failure=SIGTERM, failure_permanence=BOUNCE,
                          node_type=LEADER, configs={}, num_bounce=4):
         """This is the top-level test template.
@@ -109,6 +109,7 @@ class ReplicationTest(Test):
 
         """
         self.num_bounce = num_bounce
+
         for producer in self.producers:
             producer.configs.update(configs.copy())
 
@@ -117,6 +118,17 @@ class ReplicationTest(Test):
         self.start_producers()
 
         self.logger.debug("Driving failures...")
+
+        assert self.kafka.all_alive()
+
+        node_to_signal = self.fetch_broker_node(self.topic_to_fail, 0, node_type)
+        assert node_to_signal != None
+        leader_or_controller_change = \
+            lambda: node_to_signal != self.fetch_broker_node(self.topic_to_fail, 0, node_type) and self.kafka.dead(node_to_signal)
+
+        self.kafka.bounce_node(
+            node_to_signal, sig=SIGTERM, condition=leader_or_controller_change,
+            condition_timeout_sec=30, condition_backoff_sec=.5)
 
         self.drive_failures(failure, failure_permanence, node_type)
         self.stop_producers()
@@ -172,14 +184,14 @@ class ReplicationTest(Test):
                 done_futures = [f.done() for f in stop_futures]
                 return reduce(lambda x, y: x and y, done_futures, True)
 
-            if not wait_until(lambda: done(), timeout_sec=120, backoff_sec=1):
+            if not wait_until(lambda: done(), timeout_sec=30, backoff_sec=1):
                 raise RuntimeError("Producers did not stop in a reasonable amount of time.")
 
     def drive_failures(self, failure, failure_permanence, node_type):
 
         if failure_permanence == KILL:
             node_to_signal = self.fetch_broker_node(self.topic_to_fail, 0, node_type)
-            self.kafka.signal_node(node_to_signal, failure)
+            self.kafka.signal_node(node_to_signal, sig=failure)
 
         elif failure_permanence == BOUNCE:
             self.bounce(failure, node_type, self.num_bounce)
@@ -189,16 +201,27 @@ class ReplicationTest(Test):
     def bounce(self, signal, node_type, num_bounce):
 
         for i in range(num_bounce):
+            assert self.kafka.all_alive()
             node_to_signal = self.fetch_broker_node(self.topic_to_fail, 0, node_type)
+            self.logger.debug("Will bounce " + str(node_to_signal.account))
+            assert node_to_signal != None
 
-            leader_or_controller_change = \
-                lambda: node_to_signal != self.fetch_broker_node(self.topic_to_fail, 0, node_type)
+            def leader_or_controller_change():
+                changed = node_to_signal is not None \
+                    and node_to_signal != self.fetch_broker_node(self.topic_to_fail, 0, node_type)
+                if signal == SIGSTOP:
+                    # Check for deadness doesn't really work on a paused process
+                    return changed
+                else:
+                    # Make sure the new controller/leader is elected *and* the old process is dead
+                    # Otherwise the process will almost certainly fail to restart
+                    return changed and self.kafka.dead(node_to_signal)
 
             self.kafka.bounce_node(
-                node_to_signal, signal=signal, condition=leader_or_controller_change,
-                condition_timeout_sec=30, condition_backoff_sec=.25)
+                node_to_signal, sig=signal, condition=leader_or_controller_change,
+                condition_timeout_sec=30, condition_backoff_sec=.5)
 
-            # time.sleep(5)
+        assert self.kafka.all_alive()
 
     def kill_permanently(self, failure, node_type):
         """Fail by sending a signal to the process, but don't revive."""

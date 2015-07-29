@@ -63,7 +63,7 @@ class ZookeeperService(Service):
               self.logs["zk_log"]
 
         with futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(node.account.ssh(cmd))
+            future = executor.submit(lambda: node.account.ssh(cmd))
 
     def alive(self, node):
         try:
