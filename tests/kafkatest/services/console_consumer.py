@@ -91,6 +91,7 @@ class ConsoleConsumer(BackgroundThreadService):
         """
         super(ConsoleConsumer, self).__init__(context, num_nodes)
         self.kafka = kafka
+        self.topic = topic
         self.args = {
             'topic': topic,
         }
