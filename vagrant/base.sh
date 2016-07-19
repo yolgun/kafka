@@ -26,7 +26,7 @@ if [ -z `which javac` ]; then
     apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 0x219BD9C9
     echo "deb http://repos.azulsystems.com/ubuntu stable main" >> /etc/apt/sources.list.d/zulu.list
     apt-get -qq update
-    apt-get -qqy install zulu-7=7.14.0.5
+    apt-get -qqy install zulu-8=8.15.0.1
     #############
 fi
 
