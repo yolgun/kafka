@@ -94,7 +94,7 @@ class SecurityConfig(TemplateRenderer):
             # This generates keystore/trustore files in a local scratch directory which gets
             # automatically destroyed after the test is run
             # Creating within the scratch directory allows us to run tests in parallel without fear of collision
-            SecurityConfig.ssl_stores = Keytool.generate_keystore_truststore(context.scratch_dir)
+            SecurityConfig.ssl_stores = Keytool.generate_keystore_truststore(context.local_scratch_dir)
 
         if security_protocol is None:
             security_protocol = self.get_property('security.protocol', template_props)
