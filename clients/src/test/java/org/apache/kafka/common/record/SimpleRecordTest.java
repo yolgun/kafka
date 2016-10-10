@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.kafka.common.record;
 
 import org.junit.Test;
@@ -43,18 +44,6 @@ public class SimpleRecordTest {
         buffer.putInt(2);
         Record record = new Record(buffer);
         assertFalse(record.isValid());
-        record.ensureValid();
-    }
-
-    @Test
-    public void testIsValidWithFourBytesBuffer() {
-        ByteBuffer buffer = ByteBuffer.allocate(4);
-        Record record = new Record(buffer);
-        // it is a bit weird that we return `true` in this case, we could extend the definition of `isValid` to
-        // something like the following to detect a clearly corrupt record:
-        // return size() >= recordSize(0, 0) && checksum() == computeChecksum();
-        assertTrue(record.isValid());
-        // no exception should be thrown
         record.ensureValid();
     }
 
