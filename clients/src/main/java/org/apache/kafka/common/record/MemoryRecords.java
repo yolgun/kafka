@@ -38,7 +38,12 @@ public class MemoryRecords extends AbstractRecords {
         }
     };
 
-    private final Iterable<LogEntry> deepEntries = deepEntries(false);
+    private final Iterable<LogEntry> deepEntries = new Iterable<LogEntry>() {
+        @Override
+        public Iterator<LogEntry> iterator() {
+            return deepIterator(false, Integer.MAX_VALUE);
+        }
+    };
 
     private int validBytes = -1;
 
@@ -92,7 +97,7 @@ public class MemoryRecords extends AbstractRecords {
             return validBytes;
 
         int bytes = 0;
-        for (LogEntry entry : shallowEntries())
+        for (LogEntry entry : entries())
             bytes += entry.sizeInBytes();
 
         this.validBytes = bytes;
@@ -106,11 +111,11 @@ public class MemoryRecords extends AbstractRecords {
      * @return A FilterResult with a summary of the output (for metrics)
      */
     public FilterResult filterTo(LogRecordFilter filter, ByteBuffer destinationBuffer) {
-        return filterTo(shallowEntries(), filter, destinationBuffer);
+        return filterTo(entries(), filter, destinationBuffer);
     }
 
     private static FilterResult filterTo(Iterable<LogEntry.ShallowLogEntry> fromShallowEntries, LogRecordFilter filter,
-                                         ByteBuffer destinationBuffer) {
+                                       ByteBuffer destinationBuffer) {
         long firstOffset = -1;
         long maxTimestamp = Record.NO_TIMESTAMP;
         long maxOffset = -1L;
@@ -120,7 +125,7 @@ public class MemoryRecords extends AbstractRecords {
         int messagesRetained = 0;
         int bytesRetained = 0;
 
-       for (LogEntry.ShallowLogEntry entry : fromShallowEntries) {
+        for (LogEntry.ShallowLogEntry entry : fromShallowEntries) {
             bytesRead += entry.sizeInBytes();
 
             // We use the absolute offset to decide whether to retain the message or not Due KAFKA-4298, we have to
@@ -160,13 +165,13 @@ public class MemoryRecords extends AbstractRecords {
                 bytesRetained += entry.sizeInBytes();
                 if (entry.timestamp() > maxTimestamp) {
                     maxTimestamp = entry.timestamp();
-                    shallowOffsetOfMaxTimestamp = entry.offset();
+                    shallowOffsetOfMaxTimestamp = entry.lastOffset();
                 }
 
             } else if (!retainedRecords.isEmpty()) {
                 ByteBuffer slice = destinationBuffer.slice();
                 TimestampType timestampType = entry.timestampType();
-                long logAppendTime = timestampType == TimestampType.LOG_APPEND_TIME ? entry.timestamp() : -1L;
+                long logAppendTime = timestampType == TimestampType.LOG_APPEND_TIME ? entry.timestamp() : Record.NO_TIMESTAMP;
                 MemoryRecordsBuilder builder = builderWithRecords(slice, false, entry.magic(), firstOffset,
                         timestampType, entry.compressionType(), logAppendTime, retainedRecords);
                 MemoryRecords records = builder.build();
@@ -193,26 +198,17 @@ public class MemoryRecords extends AbstractRecords {
     }
 
     @Override
-    public Iterable<LogEntry.ShallowLogEntry> shallowEntries() {
+    public Iterable<LogEntry.ShallowLogEntry> entries() {
         return shallowEntries;
     }
 
-    public Iterator<LogEntry.ShallowLogEntry> shallowIterator() {
+    private Iterator<LogEntry.ShallowLogEntry> shallowIterator() {
         return RecordsIterator.shallowIterator(new ByteBufferLogInputStream(buffer.duplicate(), Integer.MAX_VALUE));
     }
 
     @Override
     public Iterable<LogEntry> deepEntries() {
         return deepEntries;
-    }
-
-    public Iterable<LogEntry> deepEntries(final boolean ensureMatchingMagic) {
-        return new Iterable<LogEntry>() {
-            @Override
-            public Iterator<LogEntry> iterator() {
-                return deepIterator(ensureMatchingMagic, Integer.MAX_VALUE);
-            }
-        };
     }
 
     private Iterator<LogEntry> deepIterator(boolean ensureMatchingMagic, int maxMessageSize) {
@@ -222,7 +218,7 @@ public class MemoryRecords extends AbstractRecords {
 
     @Override
     public String toString() {
-        Iterator<LogRecord> iter = records();
+        Iterator<LogRecord> iter = records().iterator();
         StringBuilder builder = new StringBuilder();
         builder.append('[');
         while (iter.hasNext()) {

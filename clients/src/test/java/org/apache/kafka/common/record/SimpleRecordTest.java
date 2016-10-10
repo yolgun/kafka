@@ -14,12 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.kafka.common.record;
 
 import org.junit.Test;
 
 import java.nio.ByteBuffer;
-import java.util.Iterator;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -99,13 +99,11 @@ public class SimpleRecordTest {
         ByteBuffer buffer = ByteBuffer.allocate(2048);
 
         MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, Record.MAGIC_VALUE_V2, CompressionType.NONE, TimestampType.CREATE_TIME, 1234567L);
-        builder.append(1234567, System.currentTimeMillis(), "a".getBytes(), "v".getBytes());
-        builder.append(1234568, System.currentTimeMillis(), "b".getBytes(), "v".getBytes());
+        builder.appendWithOffset(1234567, System.currentTimeMillis(), "a".getBytes(), "v".getBytes());
+        builder.appendWithOffset(1234568, System.currentTimeMillis(), "b".getBytes(), "v".getBytes());
 
-        MemoryRecords logBuffer = builder.build();
-        Iterator<LogEntry.ShallowLogEntry> shallowEntries = logBuffer.shallowIterator();
-        while (shallowEntries.hasNext()) {
-            LogEntry.ShallowLogEntry entry = shallowEntries.next();
+        MemoryRecords records = builder.build();
+        for (LogEntry.ShallowLogEntry entry : records.entries()) {
             assertEquals(1234567, entry.firstOffset());
             assertEquals(1234568, entry.lastOffset());
             assertTrue(entry.isValid());

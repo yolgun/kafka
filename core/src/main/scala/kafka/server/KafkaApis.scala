@@ -48,6 +48,7 @@ import org.apache.kafka.common.requests.SaslHandshakeResponse
 
 import scala.collection._
 import scala.collection.JavaConverters._
+import scala.util.Random
 
 /**
  * Logic to handle the various Kafka requests
@@ -66,6 +67,8 @@ class KafkaApis(val requestChannel: RequestChannel,
                 val quotas: QuotaManagers,
                 val clusterId: String,
                 time: Time) extends Logging {
+
+  val random = new Random()
 
   this.logIdent = "[KafkaApi-%d] ".format(brokerId)
 
@@ -98,6 +101,11 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.API_VERSIONS => handleApiVersionsRequest(request)
         case ApiKeys.CREATE_TOPICS => handleCreateTopicsRequest(request)
         case ApiKeys.DELETE_TOPICS => handleDeleteTopicsRequest(request)
+        case ApiKeys.INIT_PRODUCER_ID => handleInitPIDRequest(request)
+        //case ApiKeys.BEGIN_TXN => handleBeginTransactionRequest(request)
+        //case ApiKeys.ADD_PARTITION_TO_TXN => handleAddPartitionToTransactionRequest(request)
+        //case ApiKeys.END_TXN => handleEndTransactionRequest(request)
+        //case ApiKeys.UPDATE_TXN => handleAbortTransactionRequest(request)
         case requestId => throw new KafkaException("Unknown api code " + requestId)
       }
     } catch {
@@ -486,13 +494,7 @@ class KafkaApis(val requestChannel: RequestChannel,
             case _ => data
           }
 
-//          val convertedData = if (versionId <= 1 && replicaManager.getMessageFormatVersion(tp).exists(_ > Record.MAGIC_VALUE_V0) &&
-//            !data.logBuffer.hasMatchingShallowMagic(Record.MAGIC_VALUE_V0)) {
-//            trace(s"Down converting message to V0 for fetch request from $clientId")
-//            FetchPartitionData(data.error, data.hw, data.logBuffer.toMessageFormat(Record.MAGIC_VALUE_V0))
-//          } else data
-
-          tp -> new FetchResponse.PartitionData(convertedData.error, convertedData.hw, convertedData.records)
+          new TopicPartition(tp.topic, tp.partition) -> new FetchResponse.PartitionData(convertedData.error, convertedData.hw, convertedData.records)
         }
       }
 
@@ -1258,6 +1260,35 @@ class KafkaApis(val requestChannel: RequestChannel,
         )
       }
     }
+  }
+
+  def handleInitPIDRequest(request: RequestChannel.Request): Unit = {
+    val initPidRequest = request.body.asInstanceOf[InitPIDRequest]
+    if (initPidRequest.appId != null)
+      throw new UnsupportedOperationException
+
+    val pid = math.abs(random.nextLong())
+    val epoch: Short = 0
+    val responseBody = new InitPIDResponse(Errors.NONE, pid, epoch)
+
+    trace(s"Generated new PID $pid from InitPIDRequest from client ${request.header.clientId}")
+    requestChannel.sendResponse(new RequestChannel.Response(request, responseBody))
+  }
+
+  def handleBeginTransactionRequest(request: RequestChannel.Request): Unit = {
+    throw new UnsupportedOperationException
+  }
+
+  def handleEndTransactionRequest(request: RequestChannel.Request): Unit = {
+    throw new UnsupportedOperationException
+  }
+
+  def handleAbortTransactionRequest(request: RequestChannel.Request): Unit = {
+    throw new UnsupportedOperationException
+  }
+
+  def handleAddPartitionToTransactionRequest(request: RequestChannel.Request): Unit = {
+    throw new UnsupportedOperationException
   }
 
   def authorizeClusterAction(request: RequestChannel.Request): Unit = {

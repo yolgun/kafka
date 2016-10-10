@@ -147,7 +147,7 @@ class GroupMetadataManager(val brokerId: Int,
 
         val buffer = ByteBuffer.allocate(EosLogEntry.LOG_ENTRY_OVERHEAD + EosLogRecord.sizeOf(key, value))
         val builder = MemoryRecords.builder(buffer, magicValue, compressionType, TimestampType.CREATE_TIME)
-        builder.append(0, timestamp, key, value)
+        builder.appendWithOffset(0, timestamp, key, value)
 
         val groupMetadataPartition = new TopicPartition(Topic.GroupMetadataTopicName, partitionFor(group.groupId))
         val groupMetadataRecords = Map(groupMetadataPartition -> builder.build())
@@ -238,7 +238,7 @@ class GroupMetadataManager(val brokerId: Int,
     getMagicAndTimestamp(partitionFor(group.groupId)) match {
       case Some((magicValue, timestampType, timestamp)) =>
         val records = filteredOffsetMetadata.map { case (topicPartition, offsetAndMetadata) =>
-          val key = GroupMetadataManager.offsetCommitKey(group.groupId, topicAndPartition.topic, topicAndPartition.partition)
+          val key = GroupMetadataManager.offsetCommitKey(group.groupId, topicPartition.topic, topicPartition.partition)
           val value = GroupMetadataManager.offsetCommitValue(offsetAndMetadata)
           (key, value)
         }.toSeq
@@ -249,7 +249,7 @@ class GroupMetadataManager(val brokerId: Int,
         val buffer = ByteBuffer.allocate(EosLogEntry.LOG_ENTRY_OVERHEAD + records.map(r => EosLogRecord.sizeOf(r._1, r._2)).sum)
         val builder = MemoryRecords.builder(buffer, magicValue, compressionType, TimestampType.CREATE_TIME)
         var offset = 0
-        records.foreach { record => builder.append(offset, timestamp, record._1, record._2); offset += 1 }
+        records.foreach { record => builder.appendWithOffset(offset, timestamp, record._1, record._2); offset += 1 }
 
         val entries = Map(offsetTopicPartition -> builder.build())
 
@@ -412,33 +412,34 @@ class GroupMetadataManager(val brokerId: Int,
               val fileRecords = log.read(currOffset, config.loadBufferSize, minOneMessage = true).records.asInstanceOf[FileRecords]
               fileRecords.readInto(buffer, 0)
 
-              MemoryRecords.readableRecords(buffer).deepEntries.asScala.foreach { entry =>
-                val record = entry.record
-                require(record.hasKey, "Offset entry key should not be null")
-                val baseKey = GroupMetadataManager.readMessageKey(record.key)
+              MemoryRecords.readableRecords(buffer).entries.asScala.foreach { entry =>
+                for (record <- entry.asScala) {
+                  require(record.hasKey, "Offset entry key should not be null")
+                  val baseKey = GroupMetadataManager.readMessageKey(record.key)
 
-                if (baseKey.isInstanceOf[OffsetKey]) {
-                  // load offset
-                  val key = baseKey.key.asInstanceOf[GroupTopicPartition]
-                  if (record.hasNullValue) {
-                    loadedOffsets.remove(key)
-                    removedOffsets.add(key)
+                  if (baseKey.isInstanceOf[OffsetKey]) {
+                    // load offset
+                    val key = baseKey.key.asInstanceOf[GroupTopicPartition]
+                    if (record.hasNullValue) {
+                      loadedOffsets.remove(key)
+                      removedOffsets.add(key)
+                    } else {
+                      val value = GroupMetadataManager.readOffsetMessageValue(record.value)
+                      loadedOffsets.put(key, value)
+                      removedOffsets.remove(key)
+                    }
                   } else {
-                    val value = GroupMetadataManager.readOffsetMessageValue(record.value)
-                    loadedOffsets.put(key, value)
-                    removedOffsets.remove(key)
-                  }
-                } else {
-                  // load group metadata
-                  val groupId = baseKey.key.asInstanceOf[String]
-                  val groupMetadata = GroupMetadataManager.readGroupMessageValue(groupId, record.value)
-                  if (groupMetadata != null) {
-                    trace(s"Loaded group metadata for group ${groupMetadata.groupId} with generation ${groupMetadata.generationId}")
-                    removedGroups.remove(groupId)
-                    loadedGroups.put(groupId, groupMetadata)
-                  } else {
-                    loadedGroups.remove(groupId)
-                    removedGroups.add(groupId)
+                    // load group metadata
+                    val groupId = baseKey.key.asInstanceOf[String]
+                    val groupMetadata = GroupMetadataManager.readGroupMessageValue(groupId, record.value)
+                    if (groupMetadata != null) {
+                      trace(s"Loaded group metadata for group ${groupMetadata.groupId} with generation ${groupMetadata.generationId}")
+                      removedGroups.remove(groupId)
+                      loadedGroups.put(groupId, groupMetadata)
+                    } else {
+                      loadedGroups.remove(groupId)
+                      removedGroups.add(groupId)
+                    }
                   }
                 }
                 currOffset = entry.nextOffset
@@ -590,7 +591,7 @@ class GroupMetadataManager(val brokerId: Int,
               // Append the tombstone messages to the partition. It is okay if the replicas don't receive these (say,
               // if we crash or leaders move) since the new leaders will still expire the consumers with heartbeat and
               // retry removing this group.
-              builder.append(offset, timestamp, GroupMetadataManager.groupMetadataKey(group.groupId), null)
+              builder.appendWithOffset(offset, timestamp, GroupMetadataManager.groupMetadataKey(group.groupId), null)
               trace(s"Group $groupId removed from the metadata cache and marked for deletion in $appendPartition.")
               offset += 1
             }
