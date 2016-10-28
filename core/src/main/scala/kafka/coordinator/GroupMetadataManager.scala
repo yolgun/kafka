@@ -32,8 +32,6 @@ import org.apache.kafka.common.utils.Time
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import kafka.utils._
 import kafka.common._
-import kafka.message._
-import kafka.log.FileMessageSet
 import kafka.metrics.KafkaMetricsGroup
 import kafka.common.TopicAndPartition
 import kafka.common.MessageFormatter
@@ -49,7 +47,9 @@ import java.util.concurrent.locks.ReentrantLock
 import com.yammer.metrics.core.Gauge
 import kafka.api.{ApiVersion, KAFKA_0_10_1_IV0}
 import kafka.utils.CoreUtils.inLock
+import org.apache.kafka.common.record._
 
+import JavaConverters._
 
 class GroupMetadataManager(val brokerId: Int,
                            val interBrokerProtocolVersion: ApiVersion,
@@ -57,6 +57,8 @@ class GroupMetadataManager(val brokerId: Int,
                            replicaManager: ReplicaManager,
                            zkUtils: ZkUtils,
                            time: Time) extends Logging with KafkaMetricsGroup {
+
+  private val compressionType: CompressionType = CompressionType.forId(config.offsetsTopicCompressionCodec.codec)
 
   private val groupMetadataCache = new Pool[String, GroupMetadata]
 
@@ -151,8 +153,7 @@ class GroupMetadataManager(val brokerId: Int,
       // retry removing this group.
       val groupPartition = partitionFor(group.groupId)
       getMessageFormatVersionAndTimestamp(groupPartition).foreach { case (magicValue, timestamp) =>
-        val tombstone = new Message(bytes = null, key = GroupMetadataManager.groupMetadataKey(group.groupId),
-          timestamp = timestamp, magicValue = magicValue)
+        val tombstone = Record.create(magicValue, timestamp, GroupMetadataManager.groupMetadataKey(group.groupId), null)
 
         val partitionOpt = replicaManager.getPartition(Topic.GroupMetadataTopicName, groupPartition)
         partitionOpt.foreach { partition =>
@@ -163,7 +164,7 @@ class GroupMetadataManager(val brokerId: Int,
           try {
             // do not need to require acks since even if the tombstone is lost,
             // it will be appended again by the new leader
-            partition.appendMessagesToLeader(new ByteBufferMessageSet(config.offsetsTopicCompressionCodec, tombstone))
+            partition.appendEntriesToLeader(MemoryLogBuffer.withRecords(compressionType, tombstone))
           } catch {
             case t: Throwable =>
               error("Failed to mark group %s as deleted in %s.".format(group.groupId, appendPartition), t)
@@ -187,17 +188,12 @@ class GroupMetadataManager(val brokerId: Int,
             GroupMetadataManager.CURRENT_GROUP_VALUE_SCHEMA_VERSION
         }
 
-        val message = new Message(
-          key = GroupMetadataManager.groupMetadataKey(group.groupId),
-          bytes = GroupMetadataManager.groupMetadataValue(group, groupAssignment, version = groupMetadataValueVersion),
-          timestamp = timestamp,
-          magicValue = magicValue)
+        val record = Record.create(magicValue, timestamp,
+          GroupMetadataManager.groupMetadataKey(group.groupId),
+          GroupMetadataManager.groupMetadataValue(group, groupAssignment, version = groupMetadataValueVersion))
 
         val groupMetadataPartition = new TopicPartition(Topic.GroupMetadataTopicName, partitionFor(group.groupId))
-
-        val groupMetadataMessageSet = Map(groupMetadataPartition ->
-          new ByteBufferMessageSet(config.offsetsTopicCompressionCodec, message))
-
+        val groupMetadataRecords = Map(groupMetadataPartition -> MemoryLogBuffer.withRecords(compressionType, record))
         val generationId = group.generationId
 
         // set the callback function to insert the created group into cache after log append completed
@@ -250,7 +246,7 @@ class GroupMetadataManager(val brokerId: Int,
 
           responseCallback(responseError)
         }
-        Some(DelayedStore(groupMetadataMessageSet, putCacheCallback))
+        Some(DelayedStore(groupMetadataRecords, putCacheCallback))
 
       case None =>
         responseCallback(Errors.NOT_COORDINATOR_FOR_GROUP)
@@ -260,11 +256,11 @@ class GroupMetadataManager(val brokerId: Int,
 
   def store(delayedStore: DelayedStore) {
     // call replica manager to append the group message
-    replicaManager.appendMessages(
+    replicaManager.appendLogEntries(
       config.offsetCommitTimeoutMs.toLong,
       config.offsetCommitRequiredAcks,
       true, // allow appending to internal offset topic
-      delayedStore.messageSet,
+      delayedStore.entriesPerPartition,
       delayedStore.callback)
   }
 
@@ -285,19 +281,15 @@ class GroupMetadataManager(val brokerId: Int,
     val magicValueAndTimestampOpt = getMessageFormatVersionAndTimestamp(partitionFor(group.groupId))
     magicValueAndTimestampOpt match {
       case Some((magicValue, timestamp)) =>
-        val messages = filteredOffsetMetadata.map { case (topicAndPartition, offsetAndMetadata) =>
-          new Message(
-            key = GroupMetadataManager.offsetCommitKey(group.groupId, topicAndPartition.topic, topicAndPartition.partition),
-            bytes = GroupMetadataManager.offsetCommitValue(offsetAndMetadata),
-            timestamp = timestamp,
-            magicValue = magicValue
-          )
+        val records = filteredOffsetMetadata.map { case (topicAndPartition, offsetAndMetadata) =>
+          Record.create(magicValue, timestamp,
+            GroupMetadataManager.offsetCommitKey(group.groupId, topicAndPartition.topic, topicAndPartition.partition),
+            GroupMetadataManager.offsetCommitValue(offsetAndMetadata))
         }.toSeq
 
         val offsetTopicPartition = new TopicPartition(Topic.GroupMetadataTopicName, partitionFor(group.groupId))
 
-        val offsetsAndMetadataMessageSet = Map(offsetTopicPartition ->
-          new ByteBufferMessageSet(config.offsetsTopicCompressionCodec, messages:_*))
+        val entries = Map(offsetTopicPartition -> MemoryLogBuffer.withRecords(compressionType, records:_*))
 
         // set the callback function to insert offsets into cache after log append completed
         def putCacheCallback(responseStatus: Map[TopicPartition, PartitionResponse]) {
@@ -368,7 +360,7 @@ class GroupMetadataManager(val brokerId: Int,
           group.prepareOffsetCommit(offsetMetadata)
         }
 
-        Some(DelayedStore(offsetsAndMetadataMessageSet, putCacheCallback))
+        Some(DelayedStore(entries, putCacheCallback))
 
       case None =>
         val commitStatus = offsetMetadata.map { case (topicAndPartition, offsetAndMetadata) =>
@@ -450,28 +442,30 @@ class GroupMetadataManager(val brokerId: Int,
 
             while (currOffset < getHighWatermark(offsetsPartition) && !shuttingDown.get()) {
               buffer.clear()
-              val messages = log.read(currOffset, config.loadBufferSize, minOneMessage = true).messageSet.asInstanceOf[FileMessageSet]
-              messages.readInto(buffer, 0)
-              val messageSet = new ByteBufferMessageSet(buffer)
-              messageSet.foreach { msgAndOffset =>
-                require(msgAndOffset.message.key != null, "Offset entry key should not be null")
-                val baseKey = GroupMetadataManager.readMessageKey(msgAndOffset.message.key)
+              val logBuffer = log.read(currOffset, config.loadBufferSize, minOneMessage = true).logBuffer.asInstanceOf[FileLogBuffer]
+              logBuffer.readInto(buffer, 0)
+
+              MemoryLogBuffer.readableRecords(buffer).deepIterator.asScala.foreach { entry =>
+                val record = entry.record
+
+                require(record.hasKey, "Offset entry key should not be null")
+                val baseKey = GroupMetadataManager.readMessageKey(record.key)
 
                 if (baseKey.isInstanceOf[OffsetKey]) {
                   // load offset
                   val key = baseKey.key.asInstanceOf[GroupTopicPartition]
-                  if (msgAndOffset.message.payload == null) {
+                  if (record.hasNullValue) {
                     loadedOffsets.remove(key)
                     removedOffsets.add(key)
                   } else {
-                    val value = GroupMetadataManager.readOffsetMessageValue(msgAndOffset.message.payload)
+                    val value = GroupMetadataManager.readOffsetMessageValue(record.value)
                     loadedOffsets.put(key, value)
                     removedOffsets.remove(key)
                   }
                 } else {
                   // load group metadata
                   val groupId = baseKey.key.asInstanceOf[String]
-                  val groupMetadata = GroupMetadataManager.readGroupMessageValue(groupId, msgAndOffset.message.payload)
+                  val groupMetadata = GroupMetadataManager.readGroupMessageValue(groupId, record.value)
                   if (groupMetadata != null) {
                     trace(s"Loaded group metadata for group ${groupMetadata.groupId} with generation ${groupMetadata.generationId}")
                     removedGroups.remove(groupId)
@@ -482,7 +476,7 @@ class GroupMetadataManager(val brokerId: Int,
                   }
                 }
 
-                currOffset = msgAndOffset.nextOffset
+                currOffset = entry.nextOffset
               }
             }
 
@@ -505,8 +499,8 @@ class GroupMetadataManager(val brokerId: Int,
 
             removedGroups.foreach { groupId =>
               if (groupMetadataCache.contains(groupId))
-                throw new IllegalStateException(s"Unexpected unload of active group ${groupId} while " +
-                  s"loading partition ${topicPartition}")
+                throw new IllegalStateException(s"Unexpected unload of active group $groupId while " +
+                  s"loading partition $topicPartition")
             }
 
             if (!shuttingDown.get())
@@ -609,7 +603,7 @@ class GroupMetadataManager(val brokerId: Int,
               val tombstones = group.removeExpiredOffsets(startMs).map { case (topicPartition, offsetAndMetadata) =>
                 trace("Removing expired offset and metadata for %s, %s: %s".format(groupId, topicPartition, offsetAndMetadata))
                 val commitKey = GroupMetadataManager.offsetCommitKey(groupId, topicPartition.topic, topicPartition.partition)
-                new Message(bytes = null, key = commitKey, timestamp = timestamp, magicValue = magicValue)
+                Record.create(magicValue, timestamp, commitKey, null)
               }.toBuffer
 
               val partitionOpt = replicaManager.getPartition(Topic.GroupMetadataTopicName, offsetsPartition)
@@ -620,7 +614,7 @@ class GroupMetadataManager(val brokerId: Int,
                 try {
                   // do not need to require acks since even if the tombstone is lost,
                   // it will be appended again in the next purge cycle
-                  partition.appendMessagesToLeader(new ByteBufferMessageSet(config.offsetsTopicCompressionCodec, tombstones: _*))
+                  partition.appendEntriesToLeader(MemoryLogBuffer.withRecords(compressionType, tombstones: _*))
                   offsetsRemoved += tombstones.size
                 }
                 catch {
@@ -694,12 +688,7 @@ class GroupMetadataManager(val brokerId: Int,
   private def getMessageFormatVersionAndTimestamp(partition: Int): Option[(Byte, Long)] = {
     val groupMetadataTopicAndPartition = new TopicAndPartition(Topic.GroupMetadataTopicName, partition)
     replicaManager.getMessageFormatVersion(groupMetadataTopicAndPartition).map { messageFormatVersion =>
-      val timestamp = {
-        if (messageFormatVersion == Message.MagicValue_V0)
-          Message.NoTimestamp
-        else
-          time.milliseconds()
-      }
+      val timestamp = if (messageFormatVersion == Record.MAGIC_VALUE_V0) Record.NO_TIMESTAMP else time.milliseconds()
       (messageFormatVersion, timestamp)
     }
   }
@@ -992,7 +981,7 @@ object GroupMetadataManager {
    * @return an offset-metadata object from the message
    */
   def readOffsetMessageValue(buffer: ByteBuffer): OffsetAndMetadata = {
-    if(buffer == null) { // tombstone
+    if (buffer == null) { // tombstone
       null
     } else {
       val version = buffer.getShort
@@ -1025,7 +1014,7 @@ object GroupMetadataManager {
    * @return a group metadata object from the message
    */
   def readGroupMessageValue(groupId: String, buffer: ByteBuffer): GroupMetadata = {
-    if(buffer == null) { // tombstone
+    if (buffer == null) { // tombstone
       null
     } else {
       val version = buffer.getShort
@@ -1044,23 +1033,22 @@ object GroupMetadataManager {
         group.leaderId = value.get(LEADER_KEY).asInstanceOf[String]
         group.protocol = value.get(PROTOCOL_KEY).asInstanceOf[String]
 
-        memberMetadataArray.foreach {
-          case memberMetadataObj =>
-            val memberMetadata = memberMetadataObj.asInstanceOf[Struct]
-            val memberId = memberMetadata.get(MEMBER_ID_KEY).asInstanceOf[String]
-            val clientId = memberMetadata.get(CLIENT_ID_KEY).asInstanceOf[String]
-            val clientHost = memberMetadata.get(CLIENT_HOST_KEY).asInstanceOf[String]
-            val sessionTimeout = memberMetadata.get(SESSION_TIMEOUT_KEY).asInstanceOf[Int]
-            val rebalanceTimeout = if (version == 0) sessionTimeout else memberMetadata.get(REBALANCE_TIMEOUT_KEY).asInstanceOf[Int]
+        memberMetadataArray.foreach { memberMetadataObj =>
+          val memberMetadata = memberMetadataObj.asInstanceOf[Struct]
+          val memberId = memberMetadata.get(MEMBER_ID_KEY).asInstanceOf[String]
+          val clientId = memberMetadata.get(CLIENT_ID_KEY).asInstanceOf[String]
+          val clientHost = memberMetadata.get(CLIENT_HOST_KEY).asInstanceOf[String]
+          val sessionTimeout = memberMetadata.get(SESSION_TIMEOUT_KEY).asInstanceOf[Int]
+          val rebalanceTimeout = if (version == 0) sessionTimeout else memberMetadata.get(REBALANCE_TIMEOUT_KEY).asInstanceOf[Int]
 
-            val subscription = Utils.toArray(memberMetadata.get(SUBSCRIPTION_KEY).asInstanceOf[ByteBuffer])
+          val subscription = Utils.toArray(memberMetadata.get(SUBSCRIPTION_KEY).asInstanceOf[ByteBuffer])
 
-            val member = new MemberMetadata(memberId, groupId, clientId, clientHost, rebalanceTimeout, sessionTimeout,
-              protocolType, List((group.protocol, subscription)))
+          val member = new MemberMetadata(memberId, groupId, clientId, clientHost, rebalanceTimeout, sessionTimeout,
+            protocolType, List((group.protocol, subscription)))
 
-            member.assignment = Utils.toArray(memberMetadata.get(ASSIGNMENT_KEY).asInstanceOf[ByteBuffer])
+          member.assignment = Utils.toArray(memberMetadata.get(ASSIGNMENT_KEY).asInstanceOf[ByteBuffer])
 
-            group.add(memberId, member)
+          group.add(memberId, member)
         }
 
         group
@@ -1115,7 +1103,7 @@ object GroupMetadataManager {
 
 }
 
-case class DelayedStore(messageSet: Map[TopicPartition, MessageSet],
+case class DelayedStore(entriesPerPartition: Map[TopicPartition, MemoryLogBuffer],
                         callback: Map[TopicPartition, PartitionResponse] => Unit)
 
 case class GroupTopicPartition(group: String, topicPartition: TopicPartition) {
