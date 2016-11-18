@@ -101,4 +101,24 @@ public class SimpleRecordTest {
         }
     }
 
+    @Test
+    public void buildEosRecord() {
+        ByteBuffer buffer = ByteBuffer.allocate(2048);
+
+        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, Record.MAGIC_VALUE_V2, CompressionType.NONE, TimestampType.CREATE_TIME, 1234567L);
+        builder.appendWithOffset(1234567, System.currentTimeMillis(), "a".getBytes(), "v".getBytes());
+        builder.appendWithOffset(1234568, System.currentTimeMillis(), "b".getBytes(), "v".getBytes());
+
+        MemoryRecords records = builder.build();
+        for (LogEntry.MutableLogEntry entry : records.entries()) {
+            assertEquals(1234567, entry.baseOffset());
+            assertEquals(1234568, entry.lastOffset());
+            assertTrue(entry.isValid());
+
+            for (LogRecord record : entry) {
+                assertTrue(record.isValid());
+            }
+        }
+    }
+
 }
