@@ -271,14 +271,31 @@ object TestUtils extends Logging {
   /**
    * Wrap a single record log buffer.
    */
-  def singletonLogBuffer(value: Array[Byte],
-                         key: Array[Byte] = null,
-                         codec: CompressionType = CompressionType.NONE,
-                         timestamp: Long = Record.NO_TIMESTAMP,
-                         magicValue: Byte = Record.CURRENT_MAGIC_VALUE) = {
-    val record = Record.create(magicValue, timestamp, key, value)
-    MemoryLogBuffer.withRecords(codec, record)
+  def records(value: Array[Byte],
+              key: Array[Byte] = null,
+              codec: CompressionType = CompressionType.NONE,
+              timestamp: Long = Record.NO_TIMESTAMP,
+              magicValue: Byte = Record.CURRENT_MAGIC_VALUE) = {
+    logBuffer(magicValue = magicValue, codec = codec, (key, value, timestamp))
   }
+
+  def logBufferWithValues(magicValue: Byte,
+                codec: CompressionType,
+                values: Array[Byte]*): MemoryLogBuffer = {
+    logBuffer(magicValue, codec, values.map((null, _, Record.NO_TIMESTAMP)): _*)
+  }
+
+  def logBuffer(magicValue: Byte,
+                codec: CompressionType,
+                records: (Array[Byte], Array[Byte], Long)*): MemoryLogBuffer = {
+    val buf = ByteBuffer.allocate(EosLogEntry.LOG_ENTRY_OVERHEAD + records.map(r => EosLogRecord.sizeOf(r._1, r._2)).sum)
+    val builder = MemoryLogBuffer.builder(buf, magicValue, codec, TimestampType.CREATE_TIME)
+    records.foreach { case (key, value, timestamp) =>
+      builder.append(0, timestamp, key, value)
+    }
+    builder.build()
+  }
+
 
   /**
    * Generate an array of random bytes

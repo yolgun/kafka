@@ -395,7 +395,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         } else {
           val respBody = request.header.apiVersion match {
             case 0 => new ProduceResponse(mergedResponseStatus.asJava)
-            case version@(1 | 2) => new ProduceResponse(mergedResponseStatus.asJava, delayTimeMs, version)
+            case version@(1 | 2 | 3) => new ProduceResponse(mergedResponseStatus.asJava, delayTimeMs, version)
             // This case shouldn't happen unless a new version of ProducerRequest is added without
             // updating this part of the code to handle it properly.
             case version => throw new IllegalArgumentException(s"Version `$version` of ProduceRequest is not handled. Code must be updated.")
@@ -473,11 +473,23 @@ class KafkaApis(val requestChannel: RequestChannel,
           // Please note that if the message format is changed from a higher version back to lower version this
           // test might break because some messages in new message format can be delivered to consumers before 0.10.0.0
           // without format down conversion.
-          val convertedData = if (versionId <= 1 && replicaManager.getMessageFormatVersion(tp).exists(_ > Record.MAGIC_VALUE_V0) &&
-            !data.logBuffer.hasMatchingShallowMagic(Record.MAGIC_VALUE_V0)) {
-            trace(s"Down converting message to V0 for fetch request from $clientId")
-            FetchPartitionData(data.error, data.hw, data.logBuffer.toMessageFormat(Record.MAGIC_VALUE_V0))
-          } else data
+          val convertedData = replicaManager.getMessageFormatVersion(tp) match {
+            case Some(magic) if magic > 0 && versionId <= 1 && !data.logBuffer.hasCompatibleMagic(Record.MAGIC_VALUE_V0) =>
+              trace(s"Down converting message to V0 for fetch request from $clientId")
+              FetchPartitionData(data.error, data.hw, data.logBuffer.toMessageFormat(Record.MAGIC_VALUE_V0))
+
+            case Some(magic) if magic > 1 && versionId <= 3 && !data.logBuffer.hasCompatibleMagic(Record.MAGIC_VALUE_V1) =>
+              trace(s"Down converting message to V1 for fetch request from $clientId")
+              FetchPartitionData(data.error, data.hw, data.logBuffer.toMessageFormat(Record.MAGIC_VALUE_V1))
+
+            case _ => data
+          }
+
+//          val convertedData = if (versionId <= 1 && replicaManager.getMessageFormatVersion(tp).exists(_ > Record.MAGIC_VALUE_V0) &&
+//            !data.logBuffer.hasMatchingShallowMagic(Record.MAGIC_VALUE_V0)) {
+//            trace(s"Down converting message to V0 for fetch request from $clientId")
+//            FetchPartitionData(data.error, data.hw, data.logBuffer.toMessageFormat(Record.MAGIC_VALUE_V0))
+//          } else data
 
           new TopicPartition(tp.topic, tp.partition) -> new FetchResponse.PartitionData(convertedData.error, convertedData.hw, convertedData.logBuffer)
         }

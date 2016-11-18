@@ -20,6 +20,7 @@ import org.junit.Assert._
 import org.junit.{After, Test}
 import kafka.utils.TestUtils
 import kafka.utils.SystemTime
+import kafka.utils.TestUtils.checkEquals
 import org.apache.kafka.common.record.{FileLogBuffer, MemoryLogBuffer, Record}
 
 import scala.collection._
@@ -77,7 +78,7 @@ class LogSegmentTest {
     val ms = logBuffer(50, "hello", "there", "little", "bee")
     seg.append(50, Record.NO_TIMESTAMP, -1L, ms)
     val read = seg.read(startOffset = 41, maxSize = 300, maxOffset = None).logBuffer
-    assertEquals(ms.deepIterator.asScala.toList, read.deepIterator.asScala.toList)
+    checkEquals(ms.records, read.records)
   }
 
   /**
@@ -91,8 +92,8 @@ class LogSegmentTest {
     val ms = logBuffer(baseOffset, "hello", "there", "beautiful")
     seg.append(baseOffset, Record.NO_TIMESTAMP, -1L, ms)
     def validate(offset: Long) =
-      assertEquals(ms.deepIterator.asScala.filter(_.offset == offset).toList,
-                   seg.read(startOffset = offset, maxSize = 1024, maxOffset = Some(offset+1)).logBuffer.deepIterator.asScala.toList)
+      assertEquals(ms.records.asScala.filter(_.offset == offset).toList,
+                   seg.read(startOffset = offset, maxSize = 1024, maxOffset = Some(offset+1)).logBuffer.records.asScala.toList)
     validate(50)
     validate(51)
     validate(52)
@@ -122,7 +123,7 @@ class LogSegmentTest {
     val ms2 = logBuffer(60, "alpha", "beta")
     seg.append(60, Record.NO_TIMESTAMP, -1L, ms2)
     val read = seg.read(startOffset = 55, maxSize = 200, maxOffset = None)
-    assertEquals(ms2.deepIterator.asScala.toList, read.logBuffer.deepIterator.asScala.toList)
+    checkEquals(ms2.records, read.logBuffer.records)
   }
 
   /**
@@ -140,12 +141,12 @@ class LogSegmentTest {
       seg.append(offset + 1, Record.NO_TIMESTAMP, -1L, ms2)
       // check that we can read back both messages
       val read = seg.read(offset, None, 10000)
-      assertEquals(List(ms1.deepIterator.next(), ms2.deepIterator.next()), read.logBuffer.deepIterator.asScala.toList)
+      assertEquals(List(ms1.records.next(), ms2.records.next()), read.logBuffer.records.asScala.toList)
       // now truncate off the last message
       seg.truncateTo(offset + 1)
       val read2 = seg.read(offset, None, 10000)
-      assertEquals(1, read2.logBuffer.deepIterator.asScala.size)
-      assertEquals(ms1.deepIterator.next(), read2.logBuffer.deepIterator.next())
+      assertEquals(1, read2.logBuffer.records.asScala.size)
+      checkEquals(ms1.records, read2.logBuffer.records)
       offset += 1
     }
   }
@@ -246,7 +247,7 @@ class LogSegmentTest {
     TestUtils.writeNonsenseToFile(indexFile, 5, indexFile.length.toInt)
     seg.recover(64*1024)
     for(i <- 0 until 100)
-      assertEquals(i, seg.read(i, Some(i + 1), 1024).logBuffer.deepIterator.next().offset)
+      assertEquals(i, seg.read(i, Some(i + 1), 1024).logBuffer.records.next().offset)
   }
 
   /**
@@ -307,7 +308,7 @@ class LogSegmentTest {
     val ms2 = logBuffer(60, "alpha", "beta")
     seg.append(60, Record.NO_TIMESTAMP, -1L, ms2)
     val read = seg.read(startOffset = 55, maxSize = 200, maxOffset = None)
-    assertEquals(ms2.deepIterator.asScala.toList, read.logBuffer.deepIterator.asScala.toList)
+    checkEquals(ms2.records, read.logBuffer.records)
   }
 
   /* create a segment with   pre allocate and clearly shut down*/
@@ -321,7 +322,7 @@ class LogSegmentTest {
     val ms2 = logBuffer(60, "alpha", "beta")
     seg.append(60, Record.NO_TIMESTAMP, -1L, ms2)
     val read = seg.read(startOffset = 55, maxSize = 200, maxOffset = None)
-    assertEquals(ms2.deepIterator.asScala.toList, read.logBuffer.deepIterator.asScala.toList)
+    checkEquals(ms2.records, read.logBuffer.records)
     val oldSize = seg.log.sizeInBytes()
     val oldPosition = seg.log.channel.position
     val oldFileSize = seg.log.file.length
@@ -334,7 +335,7 @@ class LogSegmentTest {
     segments += segReopen
 
     val readAgain = segReopen.read(startOffset = 55, maxSize = 200, maxOffset = None)
-    assertEquals(ms2.deepIterator.asScala.toList, readAgain.logBuffer.deepIterator.asScala.toList)
+    checkEquals(ms2.records, readAgain.logBuffer.records)
     val size = segReopen.log.sizeInBytes()
     val position = segReopen.log.channel.position
     val fileSize = segReopen.log.file.length

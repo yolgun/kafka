@@ -139,13 +139,13 @@ object TestLogCleaning {
     require(dir.exists, "Non-existent directory: " + dir.getAbsolutePath)
     for (file <- dir.list.sorted; if file.endsWith(Log.LogFileSuffix)) {
       val fileLogBuffer = FileLogBuffer.open(new File(dir, file))
-      for (entry <- fileLogBuffer.shallowIterator.asScala) {
-        val key = TestUtils.readString(entry.record.key)
-        val content = 
-          if(entry.record.hasNullValue)
+      for (entry <- fileLogBuffer.records.asScala) {
+        val key = TestUtils.readString(entry.key)
+        val content =
+          if(entry.hasNullValue)
             null
           else
-            TestUtils.readString(entry.record.value)
+            TestUtils.readString(entry.value)
         println("offset = %s, key = %s, content = %s".format(entry.offset, key, content))
       }
     }

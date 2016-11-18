@@ -389,7 +389,7 @@ class ReplicaManager(val config: KafkaConfig,
                                entriesPerPartition: Map[TopicPartition, MemoryLogBuffer],
                                requiredAcks: Short): Map[TopicPartition, LogAppendResult] = {
     trace("Append [%s] to local log ".format(entriesPerPartition))
-    entriesPerPartition.map { case (topicPartition, records) =>
+    entriesPerPartition.map { case (topicPartition, logBuffer) =>
       BrokerTopicStats.getBrokerTopicStats(topicPartition.topic).totalProduceRequestRate.mark()
       BrokerTopicStats.getBrokerAllTopicsStats().totalProduceRequestRate.mark()
 
@@ -403,7 +403,7 @@ class ReplicaManager(val config: KafkaConfig,
           val partitionOpt = getPartition(topicPartition.topic, topicPartition.partition)
           val info = partitionOpt match {
             case Some(partition) =>
-              partition.appendEntriesToLeader(records, requiredAcks)
+              partition.appendToLeader(logBuffer, requiredAcks)
             case None => throw new UnknownTopicOrPartitionException("Partition %s doesn't exist on %d"
               .format(topicPartition, localBrokerId))
           }
@@ -415,13 +415,13 @@ class ReplicaManager(val config: KafkaConfig,
               info.lastOffset - info.firstOffset + 1
 
           // update stats for successfully appended bytes and messages as bytesInRate and messageInRate
-          BrokerTopicStats.getBrokerTopicStats(topicPartition.topic).bytesInRate.mark(records.sizeInBytes)
-          BrokerTopicStats.getBrokerAllTopicsStats.bytesInRate.mark(records.sizeInBytes)
+          BrokerTopicStats.getBrokerTopicStats(topicPartition.topic).bytesInRate.mark(logBuffer.sizeInBytes)
+          BrokerTopicStats.getBrokerAllTopicsStats.bytesInRate.mark(logBuffer.sizeInBytes)
           BrokerTopicStats.getBrokerTopicStats(topicPartition.topic).messagesInRate.mark(numAppendedMessages)
           BrokerTopicStats.getBrokerAllTopicsStats.messagesInRate.mark(numAppendedMessages)
 
           trace("%d bytes written to log %s-%d beginning at offset %d and ending at offset %d"
-            .format(records.sizeInBytes, topicPartition.topic, topicPartition.partition, info.firstOffset, info.lastOffset))
+            .format(logBuffer.sizeInBytes, topicPartition.topic, topicPartition.partition, info.firstOffset, info.lastOffset))
           (topicPartition, LogAppendResult(info))
         } catch {
           // NOTE: Failed produce requests metric is not incremented for known exceptions

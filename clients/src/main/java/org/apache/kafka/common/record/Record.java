@@ -24,6 +24,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
+import static org.apache.kafka.common.utils.Utils.wrapNullable;
+
 
 /**
  * A record: a serialized key and value along with the associated CRC and other fields
@@ -68,11 +70,12 @@ public final class Record {
      */
     public static final byte MAGIC_VALUE_V0 = 0;
     public static final byte MAGIC_VALUE_V1 = 1;
+    public static final byte MAGIC_VALUE_V2 = 2;
 
     /**
      * The current "magic" value
      */
-    public static final byte CURRENT_MAGIC_VALUE = MAGIC_VALUE_V1;
+    public static final byte CURRENT_MAGIC_VALUE = MAGIC_VALUE_V2;
 
     /**
      * Specifies the mask for the compression code. 3 bits to hold the compression codec. 0 is reserved to indicate no
@@ -366,7 +369,7 @@ public final class Record {
     }
 
     public static Record create(long timestamp, byte[] key, byte[] value) {
-        return create(CURRENT_MAGIC_VALUE, timestamp, key, value, CompressionType.NONE, TimestampType.CREATE_TIME);
+        return create(MAGIC_VALUE_V1, timestamp, key, value, CompressionType.NONE, TimestampType.CREATE_TIME);
     }
 
     public static Record create(byte magic, long timestamp, byte[] key, byte[] value) {
@@ -386,7 +389,7 @@ public final class Record {
     }
 
     public static Record create(byte[] value) {
-        return create(CURRENT_MAGIC_VALUE, NO_TIMESTAMP, null, value, CompressionType.NONE, TimestampType.CREATE_TIME);
+        return create(MAGIC_VALUE_V1, NO_TIMESTAMP, null, value, CompressionType.NONE, TimestampType.CREATE_TIME);
     }
 
     public static void writeCompressedRecordHeader(ByteBuffer buffer,
@@ -511,6 +514,10 @@ public final class Record {
         return recordSize(magic, key == null ? 0 : key.length, value == null ? 0 : value.length);
     }
 
+    public static int recordSize(byte magic, ByteBuffer key, ByteBuffer value) {
+        return recordSize(magic, key == null ? 0 : key.limit(), value == null ? 0 : value.limit());
+    }
+
     private static int recordSize(byte magic, int keySize, int valueSize) {
         if (magic == 0)
             return CRC_LENGTH + MAGIC_LENGTH + ATTRIBUTE_LENGTH + KEY_SIZE_LENGTH + keySize + VALUE_SIZE_LENGTH + valueSize;
@@ -525,7 +532,6 @@ public final class Record {
             return timestampType.updateAttributes(attributes);
         return attributes;
     }
-
 
     public static long computeChecksum(byte magic, byte attributes, long timestamp, byte[] key, byte[] value) {
         return computeChecksum(magic, attributes, timestamp, wrapNullable(key), wrapNullable(value));
@@ -569,10 +575,6 @@ public final class Record {
         if (magic == 0)
             return KEY_OFFSET_V0;
         return KEY_OFFSET_V1;
-    }
-
-    private static ByteBuffer wrapNullable(byte[] array) {
-        return array == null ? null : ByteBuffer.wrap(array);
     }
 
 }

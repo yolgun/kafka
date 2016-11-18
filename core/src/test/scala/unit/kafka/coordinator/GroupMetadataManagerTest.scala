@@ -362,7 +362,7 @@ class GroupMetadataManagerTest {
     time.sleep(2)
 
     EasyMock.reset(partition)
-    EasyMock.expect(partition.appendEntriesToLeader(EasyMock.anyObject(classOf[MemoryLogBuffer]), EasyMock.anyInt()))
+    EasyMock.expect(partition.appendToLeader(EasyMock.anyObject(classOf[MemoryLogBuffer]), EasyMock.anyInt()))
       .andReturn(LogAppendInfo.UnknownLogAppendInfo)
     EasyMock.replay(partition)
 
@@ -417,7 +417,7 @@ class GroupMetadataManagerTest {
 
     // expect the offset tombstone
     EasyMock.reset(partition)
-    EasyMock.expect(partition.appendEntriesToLeader(EasyMock.anyObject(classOf[MemoryLogBuffer]), EasyMock.anyInt()))
+    EasyMock.expect(partition.appendToLeader(EasyMock.anyObject(classOf[MemoryLogBuffer]), EasyMock.anyInt()))
       .andReturn(LogAppendInfo.UnknownLogAppendInfo)
     EasyMock.replay(partition)
 
@@ -478,7 +478,7 @@ class GroupMetadataManagerTest {
 
     // expect the offset tombstone
     EasyMock.reset(partition)
-    EasyMock.expect(partition.appendEntriesToLeader(EasyMock.anyObject(classOf[MemoryLogBuffer]), EasyMock.anyInt()))
+    EasyMock.expect(partition.appendToLeader(EasyMock.anyObject(classOf[MemoryLogBuffer]), EasyMock.anyInt()))
       .andReturn(LogAppendInfo.UnknownLogAppendInfo)
     EasyMock.replay(partition)
 

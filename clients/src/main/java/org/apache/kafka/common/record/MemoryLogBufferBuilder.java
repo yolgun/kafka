@@ -28,6 +28,8 @@ import java.nio.ByteBuffer;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
+import static org.apache.kafka.common.utils.Utils.wrapNullable;
+
 /**
  * This class is used to write new log data in memory, i.e. this is the write path for {@link MemoryLogBuffer}.
  * It transparently handles compression and exposes methods for appending new entries, possibly with message
@@ -94,6 +96,9 @@ public class MemoryLogBufferBuilder {
     private final int initPos;
     private final long baseOffset;
     private final long logAppendTime;
+    private final long pid;
+    private final short epoch;
+    private final int baseSequence;
     private final int writeLimit;
 
     private MemoryLogBuffer builtLogBuffer;
@@ -110,6 +115,9 @@ public class MemoryLogBufferBuilder {
                                   TimestampType timestampType,
                                   long baseOffset,
                                   long logAppendTime,
+                                  long pid,
+                                  short epoch,
+                                  int baseSequence,
                                   int writeLimit) {
         this.magic = magic;
         this.timestampType = timestampType;
@@ -121,10 +129,15 @@ public class MemoryLogBufferBuilder {
         this.writtenUncompressed = 0;
         this.compressionRate = 1;
         this.maxTimestamp = Record.NO_TIMESTAMP;
+        this.pid = pid;
+        this.epoch = epoch;
+        this.baseSequence = baseSequence;
         this.writeLimit = writeLimit;
         this.initialBuffer = buffer;
 
-        if (compressionType != CompressionType.NONE) {
+        if (magic > 1) {
+            buffer.position(initPos + EosLogEntry.RECORDS_OFFSET);
+        } else if (compressionType != CompressionType.NONE) {
             // for compressed records, leave space for the header and the shallow message metadata
             // and move the starting position to the value payload offset
             buffer.position(initPos + LogBuffer.LOG_OVERHEAD + Record.recordOverhead(magic));
@@ -179,13 +192,30 @@ public class MemoryLogBufferBuilder {
             throw new KafkaException(e);
         }
 
-        if (compressionType != CompressionType.NONE)
+        if (magic > 1)
+            writeEosEntryHeader();
+        else if (compressionType != CompressionType.NONE)
             writerCompressedWrapperHeader();
 
         ByteBuffer buffer = buffer().duplicate();
         buffer.flip();
         buffer.position(initPos);
         builtLogBuffer = MemoryLogBuffer.readableRecords(buffer);
+    }
+
+    private void writeEosEntryHeader() {
+        ByteBuffer buffer = bufferStream.buffer();
+        int pos = buffer.position();
+        buffer.position(initPos);
+
+        long timestamp = timestampType == TimestampType.LOG_APPEND_TIME ? logAppendTime : maxTimestamp;
+        int size = pos - initPos;
+
+        int offsetDelta = (int) (lastOffset - baseOffset);
+        EosLogEntry.writeInPlaceHeader(buffer, baseOffset, offsetDelta, size, magic, compressionType, timestampType,
+                timestamp, pid, epoch, baseSequence);
+
+        buffer.position(pos);
     }
 
     private void writerCompressedWrapperHeader() {
@@ -215,10 +245,16 @@ public class MemoryLogBufferBuilder {
      * @param value The record value
      * @return crc of the record
      */
-    public long append(long offset, long timestamp, byte[] key, byte[] value) {
+    public long append(long offset, long timestamp, ByteBuffer key, ByteBuffer value) {
         try {
             if (lastOffset > 0 && offset <= lastOffset)
                 throw new IllegalArgumentException(String.format("Illegal offset %s following previous offset %s (Offsets must increase monotonically).", offset, lastOffset));
+
+            if (magic > 1)
+                return appendEosRecord(offset, timestamp, key, value);
+
+            if (compressionType == CompressionType.NONE && timestampType == TimestampType.LOG_APPEND_TIME)
+                timestamp = logAppendTime;
 
             int size = Record.recordSize(magic, key, value);
             LogEntry.writeHeader(appendStream, toInnerOffset(offset), size);
@@ -231,6 +267,16 @@ public class MemoryLogBufferBuilder {
         } catch (IOException e) {
             throw new KafkaException("I/O exception when writing to the append stream, closing", e);
         }
+    }
+
+    public long append(long offset, long timestamp, byte[] key, byte[] value) {
+        return append(offset, timestamp, wrapNullable(key), wrapNullable(value));
+    }
+
+    private long appendEosRecord(long offset, long timestamp, ByteBuffer key, ByteBuffer value) throws IOException {
+        long crc = EosLogRecord.write(appendStream, offset - baseOffset, (byte) 0, timestamp, key, value);
+        recordWritten(offset, timestamp, EosLogRecord.sizeOf(key, value) + LogBuffer.LOG_OVERHEAD);
+        return crc;
     }
 
     /**
@@ -250,9 +296,8 @@ public class MemoryLogBufferBuilder {
         try {
             int size = record.convertedSize(magic);
             LogEntry.writeHeader(appendStream, toInnerOffset(offset), size);
-            long timestamp = timestampType == TimestampType.LOG_APPEND_TIME ? logAppendTime : record.timestamp();
-            record.convertTo(appendStream, magic, timestamp, timestampType);
-            recordWritten(offset, timestamp, size);
+            record.convertTo(appendStream, magic, record.timestamp(), timestampType);
+            recordWritten(offset, logAppendTime, size);
         } catch (IOException e) {
             throw new KafkaException("I/O exception when writing to the append stream, closing", e);
         }
@@ -285,6 +330,24 @@ public class MemoryLogBufferBuilder {
     public void append(LogEntry entry) {
         append(entry.offset(), entry.record());
     }
+
+    /**
+     *
+     * @param record
+     */
+    public void append(LogRecord record) {
+        append(record.offset(), record.timestamp(), record.key(), record.value());
+    }
+
+    /**
+     * Append a log record using a different offset
+     * @param offset
+     * @param record
+     */
+    public void append(long offset, LogRecord record) {
+        append(offset, record.timestamp(), record.key(), record.value());
+    }
+
 
     /**
      * Add a record with a given offset. The record must have a magic which matches the magic use to

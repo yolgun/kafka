@@ -224,7 +224,7 @@ class ReplicaManagerTest {
           timeout = 1000,
           requiredAcks = -1,
           internalTopicsAllowed = false,
-          entriesPerPartition = Map(new TopicPartition(topic, 0) -> MemoryLogBuffer.withRecords(Record.create("message %d".format(i).getBytes))),
+          entriesPerPartition = Map(new TopicPartition(topic, 0) -> TestUtils.records("message %d".format(i).getBytes)),
           responseCallback = produceCallback)
       
       var fetchCallbackFired = false

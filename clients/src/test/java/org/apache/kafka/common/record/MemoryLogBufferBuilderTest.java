@@ -48,7 +48,7 @@ public class MemoryLogBufferBuilderTest {
 
         long logAppendTime = System.currentTimeMillis();
         MemoryLogBufferBuilder builder = new MemoryLogBufferBuilder(buffer, Record.MAGIC_VALUE_V1, compressionType,
-                TimestampType.LOG_APPEND_TIME, 0L, logAppendTime, buffer.capacity());
+                TimestampType.LOG_APPEND_TIME, 0L, logAppendTime, 0, (short) 0, 0, buffer.capacity());
         builder.append(0L, 0L, "a".getBytes(), "1".getBytes());
         builder.append(1L, 0L, "b".getBytes(), "2".getBytes());
         builder.append(2L, 0L, "c".getBytes(), "3".getBytes());
@@ -62,11 +62,10 @@ public class MemoryLogBufferBuilderTest {
         else
             assertEquals(2L, info.offsetOfMaxTimestamp);
 
-        Iterator<Record> iterator = logBuffer.records();
-        while (iterator.hasNext()) {
-            Record record = iterator.next();
-            assertEquals(TimestampType.LOG_APPEND_TIME, record.timestampType());
-            assertEquals(logAppendTime, record.timestamp());
+        for (LogEntry logEntry : logBuffer) {
+            assertEquals(TimestampType.LOG_APPEND_TIME, logEntry.timestampType());
+            for (LogRecord record : logEntry)
+                assertEquals(logAppendTime, record.timestamp());
         }
     }
 
@@ -77,7 +76,7 @@ public class MemoryLogBufferBuilderTest {
 
         long logAppendTime = System.currentTimeMillis();
         MemoryLogBufferBuilder builder = new MemoryLogBufferBuilder(buffer, Record.MAGIC_VALUE_V1, compressionType,
-                TimestampType.LOG_APPEND_TIME, 0L, logAppendTime, buffer.capacity());
+                TimestampType.LOG_APPEND_TIME, 0L, logAppendTime, 0, (short) 0, 0, buffer.capacity());
 
         builder.convertAndAppend(0L, Record.create(Record.MAGIC_VALUE_V0, 0L, "a".getBytes(), "1".getBytes()));
         builder.convertAndAppend(1L, Record.create(Record.MAGIC_VALUE_V0, 0L, "b".getBytes(), "2".getBytes()));
@@ -92,11 +91,10 @@ public class MemoryLogBufferBuilderTest {
         else
             assertEquals(2L, info.offsetOfMaxTimestamp);
 
-        Iterator<Record> iterator = logBuffer.records();
-        while (iterator.hasNext()) {
-            Record record = iterator.next();
-            assertEquals(TimestampType.LOG_APPEND_TIME, record.timestampType());
-            assertEquals(logAppendTime, record.timestamp());
+        for (LogEntry logEntry : logBuffer) {
+            assertEquals(TimestampType.LOG_APPEND_TIME, logEntry.timestampType());
+            for (LogRecord record : logEntry)
+                assertEquals(logAppendTime, record.timestamp());
         }
     }
 
@@ -107,7 +105,7 @@ public class MemoryLogBufferBuilderTest {
 
         long logAppendTime = System.currentTimeMillis();
         MemoryLogBufferBuilder builder = new MemoryLogBufferBuilder(buffer, Record.MAGIC_VALUE_V1, compressionType,
-                TimestampType.CREATE_TIME, 0L, logAppendTime, buffer.capacity());
+                TimestampType.CREATE_TIME, 0L, logAppendTime, 0, (short) 0, 0, buffer.capacity());
         builder.append(0L, 0L, "a".getBytes(), "1".getBytes());
         builder.append(1L, 1L, "b".getBytes(), "2".getBytes());
         builder.append(2L, 2L, "c".getBytes(), "3".getBytes());
@@ -117,12 +115,11 @@ public class MemoryLogBufferBuilderTest {
         assertEquals(2L, info.maxTimestamp);
         assertEquals(2L, info.offsetOfMaxTimestamp);
 
-        Iterator<Record> iterator = logBuffer.records();
         long i = 0L;
-        while (iterator.hasNext()) {
-            Record record = iterator.next();
-            assertEquals(TimestampType.CREATE_TIME, record.timestampType());
-            assertEquals(i++, record.timestamp());
+        for (LogEntry logEntry : logBuffer) {
+            assertEquals(TimestampType.CREATE_TIME, logEntry.timestampType());
+            for (LogRecord record : logEntry)
+                assertEquals(i++, record.timestamp());
         }
     }
 
@@ -133,7 +130,7 @@ public class MemoryLogBufferBuilderTest {
 
         long logAppendTime = System.currentTimeMillis();
         MemoryLogBufferBuilder builder = new MemoryLogBufferBuilder(buffer, Record.MAGIC_VALUE_V1, compressionType,
-                TimestampType.CREATE_TIME, 0L, logAppendTime, buffer.capacity());
+                TimestampType.CREATE_TIME, 0L, logAppendTime, 0, (short) 0, 0, buffer.capacity());
         builder.append(0L, 0L, "a".getBytes(), "1".getBytes());
         builder.append(1L, 1L, "b".getBytes(), "2".getBytes());
 
@@ -145,12 +142,11 @@ public class MemoryLogBufferBuilderTest {
         assertEquals(2L, info.maxTimestamp);
         assertEquals(2L, info.offsetOfMaxTimestamp);
 
-        Iterator<Record> iterator = logBuffer.records();
         long i = 0L;
-        while (iterator.hasNext()) {
-            Record record = iterator.next();
-            assertEquals(TimestampType.CREATE_TIME, record.timestampType());
-            assertEquals(i++, record.timestamp());
+        for (LogEntry logEntry : logBuffer) {
+            assertEquals(TimestampType.CREATE_TIME, logEntry.timestampType());
+            for (LogRecord record : logEntry)
+                assertEquals(i++, record.timestamp());
         }
     }
 
@@ -161,7 +157,7 @@ public class MemoryLogBufferBuilderTest {
 
         long logAppendTime = System.currentTimeMillis();
         MemoryLogBufferBuilder builder = new MemoryLogBufferBuilder(buffer, Record.MAGIC_VALUE_V1, compressionType,
-                TimestampType.CREATE_TIME, 0L, logAppendTime, buffer.capacity());
+                TimestampType.CREATE_TIME, 0L, logAppendTime, 0, (short) 0, 0, buffer.capacity());
 
         builder.convertAndAppend(0L, Record.create(Record.MAGIC_VALUE_V0, 0L, "a".getBytes(), "1".getBytes()));
         builder.convertAndAppend(0L, Record.create(Record.MAGIC_VALUE_V0, 0L, "b".getBytes(), "2".getBytes()));
@@ -172,11 +168,10 @@ public class MemoryLogBufferBuilderTest {
         assertEquals(Record.NO_TIMESTAMP, info.maxTimestamp);
         assertEquals(0L, info.offsetOfMaxTimestamp);
 
-        Iterator<Record> iterator = logBuffer.records();
-        while (iterator.hasNext()) {
-            Record record = iterator.next();
-            assertEquals(TimestampType.CREATE_TIME, record.timestampType());
-            assertEquals(Record.NO_TIMESTAMP, record.timestamp());
+        for (LogEntry logEntry : logBuffer) {
+            assertEquals(TimestampType.CREATE_TIME, logEntry.timestampType());
+            for (LogRecord record : logEntry)
+                assertEquals(Record.NO_TIMESTAMP, record.timestamp());
         }
     }
 

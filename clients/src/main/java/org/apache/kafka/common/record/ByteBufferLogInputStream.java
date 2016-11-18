@@ -28,7 +28,7 @@ import static org.apache.kafka.common.record.LogBuffer.LOG_OVERHEAD;
  * A byte buffer backed log input stream. This class avoids the need to copy records by returning
  * slices from the underlying byte buffer.
  */
-class ByteBufferLogInputStream implements LogInputStream<ByteBufferLogInputStream.ByteBufferLogEntry> {
+class ByteBufferLogInputStream implements LogInputStream<LogEntry.ShallowLogEntry> {
     private final ByteBuffer buffer;
     private final int maxMessageSize;
 
@@ -37,7 +37,7 @@ class ByteBufferLogInputStream implements LogInputStream<ByteBufferLogInputStrea
         this.maxMessageSize = maxMessageSize;
     }
 
-    public ByteBufferLogEntry nextEntry() throws IOException {
+    public LogEntry.ShallowLogEntry nextEntry() throws IOException {
         int remaining = buffer.remaining();
         if (LogBuffer.LOG_OVERHEAD > remaining)
             return null;
@@ -51,12 +51,22 @@ class ByteBufferLogInputStream implements LogInputStream<ByteBufferLogInputStrea
         if (size + LogBuffer.LOG_OVERHEAD > remaining)
             return null;
 
-        ByteBufferLogEntry slice = new ByteBufferLogEntry(buffer);
-        buffer.position(buffer.position() + slice.size());
-        return slice;
+        byte magic = buffer.get(buffer.position() + LOG_OVERHEAD + Record.MAGIC_OFFSET);
+
+        ByteBuffer dup = buffer.duplicate();
+        dup.limit(dup.position() + LOG_OVERHEAD + size);
+        ByteBuffer slice = dup.slice();
+
+        final LogEntry.ShallowLogEntry entry;
+        if (magic > Record.MAGIC_VALUE_V1)
+            entry = new EosLogEntry(slice);
+        else
+            entry = new ByteBufferLogEntry(slice);
+        buffer.position(buffer.position() + entry.sizeInBytes());
+        return entry;
     }
 
-    public static class ByteBufferLogEntry extends LogEntry {
+    public static class ByteBufferLogEntry extends LogEntry.ShallowLogEntry {
         protected final ByteBuffer buffer;
 
         public ByteBufferLogEntry(ByteBuffer buffer) {

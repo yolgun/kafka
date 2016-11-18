@@ -334,20 +334,20 @@ class Log(@volatile var dir: File,
    * This method will generally be responsible for assigning offsets to the messages,
    * however if the assignOffsets=false flag is passed we will only check that the existing offsets are valid.
    *
-   * @param entries The log entries to append
+   * @param logBuffer The log entries to append
    * @param assignOffsets Should the log assign offsets to this message set or blindly apply what it is given
    * @throws KafkaStorageException If the append fails due to an I/O error.
    * @return Information about the appended messages including the first and last offset.
    */
-  def append(entries: MemoryLogBuffer, assignOffsets: Boolean = true): LogAppendInfo = {
-    val appendInfo = analyzeAndValidateEntries(entries)
+  def append(logBuffer: MemoryLogBuffer, assignOffsets: Boolean = true): LogAppendInfo = {
+    val appendInfo = analyzeAndValidateEntries(logBuffer)
 
     // if we have any valid messages, append them to the log
     if (appendInfo.shallowCount == 0)
       return appendInfo
 
     // trim any invalid bytes or partial messages before appending it to the on-disk log
-    var validEntries = trimInvalidBytes(entries, appendInfo)
+    var validEntries = trimInvalidBytes(logBuffer, appendInfo)
 
     try {
       // they are valid, insert them in the log
@@ -382,21 +382,20 @@ class Log(@volatile var dir: File,
           // format conversion)
           if (validateAndOffsetAssignResult.messageSizeMaybeChanged) {
             for (logEntry <- validEntries.shallowIterator.asScala) {
-              if (logEntry.size > config.maxMessageSize) {
+              if (logEntry.sizeInBytes > config.maxMessageSize) {
                 // we record the original message set size instead of the trimmed size
                 // to be consistent with pre-compression bytesRejectedRate recording
-                BrokerTopicStats.getBrokerTopicStats(topicAndPartition.topic).bytesRejectedRate.mark(entries.sizeInBytes)
-                BrokerTopicStats.getBrokerAllTopicsStats.bytesRejectedRate.mark(entries.sizeInBytes)
+                BrokerTopicStats.getBrokerTopicStats(topicAndPartition.topic).bytesRejectedRate.mark(logBuffer.sizeInBytes)
+                BrokerTopicStats.getBrokerAllTopicsStats.bytesRejectedRate.mark(logBuffer.sizeInBytes)
                 throw new RecordTooLargeException("Message size is %d bytes which exceeds the maximum configured message size of %d."
-                  .format(logEntry.size, config.maxMessageSize))
+                  .format(logEntry.sizeInBytes, config.maxMessageSize))
               }
             }
           }
-
         } else {
           // we are taking the offsets we are given
           if (!appendInfo.offsetsMonotonic || appendInfo.firstOffset < nextOffsetMetadata.messageOffset)
-            throw new IllegalArgumentException("Out of order offsets found in " + entries.deepIterator.asScala.map(_.offset))
+            throw new IllegalArgumentException("Out of order offsets found in " + logBuffer.records.asScala.map(_.offset).toList + ", next offset: " + nextOffsetMetadata.messageOffset)
         }
 
         // check messages set size may be exceed config.segmentSize
@@ -453,20 +452,18 @@ class Log(@volatile var dir: File,
     var monotonic = true
     var maxTimestamp = Record.NO_TIMESTAMP
     var offsetOfMaxTimestamp = -1L
-    for (logEntry <- logBuffer.shallowIterator.asScala) {
+    for (entry <- logBuffer.asScala) {
       // update the first offset if on the first message
-      if(firstOffset < 0)
-        firstOffset = logEntry.offset
+      if (firstOffset < 0)
+        firstOffset = if (entry.magic >= Record.MAGIC_VALUE_V2) entry.firstOffset else entry.offset
       // check that offsets are monotonically increasing
-      if(lastOffset >= logEntry.offset)
+      if (lastOffset >= entry.offset)
         monotonic = false
       // update the last offset seen
-      lastOffset = logEntry.offset
-
-      val record = logEntry.record
+      lastOffset = entry.offset
 
       // Check if the message sizes are valid.
-      val messageSize = logEntry.size
+      val messageSize = entry.sizeInBytes
       if(messageSize > config.maxMessageSize) {
         BrokerTopicStats.getBrokerTopicStats(topicAndPartition.topic).bytesRejectedRate.mark(logBuffer.sizeInBytes)
         BrokerTopicStats.getBrokerAllTopicsStats.bytesRejectedRate.mark(logBuffer.sizeInBytes)
@@ -475,15 +472,16 @@ class Log(@volatile var dir: File,
       }
 
       // check the validity of the message by checking CRC
-      record.ensureValid()
-      if (record.timestamp > maxTimestamp) {
-        maxTimestamp = record.timestamp
+      entry.ensureValid()
+
+      if (entry.timestamp > maxTimestamp) {
+        maxTimestamp = entry.timestamp
         offsetOfMaxTimestamp = lastOffset
       }
       shallowMessageCount += 1
       validBytesCount += messageSize
 
-      val messageCodec = CompressionCodec.getCompressionCodec(record.compressionType.id)
+      val messageCodec = CompressionCodec.getCompressionCodec(entry.compressionType.id)
       if (messageCodec != NoCompressionCodec)
         sourceCodec = messageCodec
     }

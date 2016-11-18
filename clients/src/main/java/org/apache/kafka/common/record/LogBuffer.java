@@ -24,7 +24,7 @@ import java.util.Iterator;
  * A log buffer is a sequence of log entries. Each log entry consists of a 4 byte size, an 8 byte offset,
  * and the record bytes. See {@link MemoryLogBuffer} for the in-memory representation.
  */
-public interface LogBuffer {
+public interface LogBuffer extends Iterable<LogEntry> {
 
     int OFFSET_OFFSET = 0;
     int OFFSET_LENGTH = 8;
@@ -67,6 +67,13 @@ public interface LogBuffer {
      */
     boolean hasMatchingShallowMagic(byte magic);
 
+    /**
+     * Check whether this log buffer has a magic value compatible with a particular value
+     * (i.e. whether all message sets contained in the buffer have a lower magic)
+     * @param magic
+     * @return
+     */
+    boolean hasCompatibleMagic(byte magic);
 
     /**
      * Convert all entries in this buffer to a certain magic value.
@@ -75,4 +82,9 @@ public interface LogBuffer {
      */
     LogBuffer toMessageFormat(byte toMagic);
 
+    /**
+     * Get an iterator over the records in this log (i.e. the "deep" entries)
+     * @return The record iterator
+     */
+    Iterator<LogRecord> records();
 }

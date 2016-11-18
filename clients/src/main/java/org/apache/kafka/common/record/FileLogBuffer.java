@@ -247,9 +247,9 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
         Iterator<FileChannelLogEntry> iterator = shallowEntriesFrom(Integer.MAX_VALUE, startingPosition, false);
         while (iterator.hasNext()) {
             FileChannelLogEntry entry = iterator.next();
-            long offset = entry.offset();
+            long offset = entry.lastOffset();
             if (offset >= targetOffset)
-                return new LogEntryPosition(offset, entry.position(), entry.size());
+                return new LogEntryPosition(offset, entry.position(), entry.sizeInBytes());
         }
         return null;
     }
@@ -264,18 +264,17 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
     public TimestampAndOffset searchForTimestamp(long targetTimestamp, int startingPosition) {
         Iterator<FileChannelLogEntry> shallowIterator = shallowEntriesFrom(startingPosition);
         while (shallowIterator.hasNext()) {
-            LogEntry shallowEntry = shallowIterator.next();
-            Record shallowRecord = shallowEntry.record();
-            if (shallowRecord.timestamp() >= targetTimestamp) {
+            LogEntry logEntry = shallowIterator.next();
+            if (logEntry.timestamp() >= targetTimestamp) {
                 // We found a message
-                for (LogEntry deepLogEntry : shallowEntry) {
-                    long timestamp = deepLogEntry.record().timestamp();
+                for (LogRecord record : logEntry) {
+                    long timestamp = record.timestamp();
                     if (timestamp >= targetTimestamp)
-                        return new TimestampAndOffset(timestamp, deepLogEntry.offset());
+                        return new TimestampAndOffset(timestamp, record.offset());
                 }
-                throw new IllegalStateException(String.format("The message set (max timestamp = %s, max offset = %s" +
-                        " should contain target timestamp %s, but does not.", shallowRecord.timestamp(),
-                        shallowEntry.offset(), targetTimestamp));
+                throw new IllegalStateException(String.format("The message set (max timestamp = %s, max offset = %s)" +
+                        " should contain target timestamp %s but it does not.", logEntry.timestamp(),
+                        logEntry.offset(), targetTimestamp));
             }
         }
         return null;
@@ -293,7 +292,7 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
         Iterator<FileChannelLogEntry> shallowIterator = shallowEntriesFrom(startingPosition);
         while (shallowIterator.hasNext()) {
             LogEntry shallowEntry = shallowIterator.next();
-            long timestamp = shallowEntry.record().timestamp();
+            long timestamp = shallowEntry.timestamp();
             if (timestamp > maxTimestamp) {
                 maxTimestamp = timestamp;
                 offsetOfMaxTimestamp = shallowEntry.offset();

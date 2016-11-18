@@ -770,4 +770,15 @@ public class Utils {
         return crc.getValue();
     }
 
+    public static <T> List<T> toList(Iterator<T> iterator) {
+        List<T> res = new ArrayList<>();
+        while (iterator.hasNext())
+            res.add(iterator.next());
+        return res;
+    }
+
+    public static ByteBuffer wrapNullable(byte[] array) {
+        return array == null ? null : ByteBuffer.wrap(array);
+    }
+
 }

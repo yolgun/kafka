@@ -85,7 +85,7 @@ public class FileLogBufferTest {
         logBuffer.channel().write(buffer);
 
         // appending those bytes should not change the contents
-        TestUtils.checkEquals(Arrays.asList(records).iterator(), logBuffer.records());
+        TestUtils.checkEquals(Arrays.asList(records).iterator(), logBuffer.rawRecords());
     }
 
     /**
@@ -94,7 +94,7 @@ public class FileLogBufferTest {
     @Test
     public void testIterationDoesntChangePosition() throws IOException {
         long position = logBuffer.channel().position();
-        TestUtils.checkEquals(Arrays.asList(records).iterator(), logBuffer.records());
+        TestUtils.checkEquals(Arrays.asList(records).iterator(), logBuffer.rawRecords());
         assertEquals(position, logBuffer.channel().position());
     }
 
@@ -109,11 +109,11 @@ public class FileLogBufferTest {
         List<LogEntry> items = shallowEntries(read);
         LogEntry second = items.get(1);
 
-        read = logBuffer.read(second.size(), logBuffer.sizeInBytes());
+        read = logBuffer.read(second.sizeInBytes(), logBuffer.sizeInBytes());
         assertEquals("Try a read starting from the second message",
                 items.subList(1, 3), shallowEntries(read));
 
-        read = logBuffer.read(second.size(), second.size());
+        read = logBuffer.read(second.sizeInBytes(), second.sizeInBytes());
         assertEquals("Try a read of a single message starting from the second message",
                 Collections.singletonList(second), shallowEntries(read));
     }
@@ -130,22 +130,22 @@ public class FileLogBufferTest {
         List<LogEntry> entries = shallowEntries(logBuffer);
         int position = 0;
 
-        int message1Size = entries.get(0).size();
+        int message1Size = entries.get(0).sizeInBytes();
         assertEquals("Should be able to find the first message by its offset",
                 new FileLogBuffer.LogEntryPosition(0L, position, message1Size),
                 logBuffer.searchForOffsetWithSize(0, 0));
         position += message1Size;
 
-        int message2Size = entries.get(1).size();
+        int message2Size = entries.get(1).sizeInBytes();
         assertEquals("Should be able to find second message when starting from 0",
                 new FileLogBuffer.LogEntryPosition(1L, position, message2Size),
                 logBuffer.searchForOffsetWithSize(1, 0));
         assertEquals("Should be able to find second message starting from its offset",
                 new FileLogBuffer.LogEntryPosition(1L, position, message2Size),
                 logBuffer.searchForOffsetWithSize(1, position));
-        position += message2Size + entries.get(2).size();
+        position += message2Size + entries.get(2).sizeInBytes();
 
-        int message4Size = entries.get(3).size();
+        int message4Size = entries.get(3).sizeInBytes();
         assertEquals("Should be able to find fourth message from a non-existant offset",
                 new FileLogBuffer.LogEntryPosition(50L, position, message4Size),
                 logBuffer.searchForOffsetWithSize(3, position));
@@ -161,7 +161,7 @@ public class FileLogBufferTest {
     public void testIteratorWithLimits() throws IOException {
         LogEntry entry = shallowEntries(logBuffer).get(1);
         long start = logBuffer.searchForOffsetWithSize(1, 0).position;
-        int size = entry.size();
+        int size = entry.sizeInBytes();
         FileLogBuffer slice = logBuffer.read(start, size);
         assertEquals(Collections.singletonList(entry), shallowEntries(slice));
         FileLogBuffer slice2 = logBuffer.read(start, size - 1);
@@ -177,7 +177,7 @@ public class FileLogBufferTest {
         long end = logBuffer.searchForOffsetWithSize(1, 0).position;
         logBuffer.truncateTo((int) end);
         assertEquals(Collections.singletonList(entry), shallowEntries(logBuffer));
-        assertEquals(entry.size(), logBuffer.sizeInBytes());
+        assertEquals(entry.sizeInBytes(), logBuffer.sizeInBytes());
     }
 
     /**
@@ -299,7 +299,7 @@ public class FileLogBufferTest {
     public void testFormatConversionWithPartialMessage() throws IOException {
         LogEntry entry = shallowEntries(logBuffer).get(1);
         long start = logBuffer.searchForOffsetWithSize(1, 0).position;
-        int size = entry.size();
+        int size = entry.sizeInBytes();
         FileLogBuffer slice = logBuffer.read(start, size - 1);
         LogBuffer messageV0 = slice.toMessageFormat(Record.MAGIC_VALUE_V0);
         assertTrue("No message should be there", shallowEntries(messageV0).isEmpty());
@@ -373,12 +373,15 @@ public class FileLogBufferTest {
 
     private void verifyConvertedMessageSet(List<LogEntry> initialEntries, LogBuffer convertedLogBuffer, byte magicByte) {
         int i = 0;
-        for (LogEntry logEntry : deepEntries(convertedLogBuffer)) {
-            assertEquals("magic byte should be " + magicByte, magicByte, logEntry.record().magic());
-            assertEquals("offset should not change", initialEntries.get(i).offset(), logEntry.offset());
-            assertEquals("key should not change", initialEntries.get(i).record().key(), logEntry.record().key());
-            assertEquals("payload should not change", initialEntries.get(i).record().value(), logEntry.record().value());
-            i += 1;
+        for (LogEntry entry : convertedLogBuffer) {
+            assertEquals("magic byte should be " + magicByte, magicByte, entry.magic());
+            for (LogRecord record : entry) {
+                assertTrue("Inner record should have magic " + magicByte, record.hasMagic(magicByte));
+                assertEquals("offset should not change", initialEntries.get(i).offset(), record.offset());
+                assertEquals("key should not change", initialEntries.get(i).record().key(), record.key());
+                assertEquals("payload should not change", initialEntries.get(i).record().value(), record.value());
+                i += 1;
+            }
         }
     }
 
@@ -387,16 +390,6 @@ public class FileLogBufferTest {
         Iterator<? extends LogEntry> iterator = buffer.shallowIterator();
         while (iterator.hasNext())
             entries.add(iterator.next());
-        return entries;
-    }
-
-    private static List<LogEntry> deepEntries(LogBuffer buffer) {
-        List<LogEntry> entries = new ArrayList<>();
-        Iterator<? extends LogEntry> iterator = buffer.shallowIterator();
-        while (iterator.hasNext()) {
-            for (LogEntry deepEntry : iterator.next())
-                entries.add(deepEntry);
-        }
         return entries;
     }
 

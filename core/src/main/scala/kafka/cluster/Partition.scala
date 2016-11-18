@@ -425,7 +425,7 @@ class Partition(val topic: String,
     laggingReplicas
   }
 
-  def appendEntriesToLeader(records: MemoryLogBuffer, requiredAcks: Int = 0) = {
+  def appendToLeader(logBuffer: MemoryLogBuffer, requiredAcks: Int = 0) = {
     val (info, leaderHWIncremented) = inReadLock(leaderIsrUpdateLock) {
       val leaderReplicaOpt = leaderReplicaIfLocal()
       leaderReplicaOpt match {
@@ -440,7 +440,7 @@ class Partition(val topic: String,
               .format(topic, partitionId, inSyncSize, minIsr))
           }
 
-          val info = log.append(records, assignOffsets = true)
+          val info = log.append(logBuffer, assignOffsets = true)
           // probably unblock some follower fetch requests since log end offset has been updated
           replicaManager.tryCompleteDelayedFetch(TopicPartitionOperationKey(this.topic, this.partitionId))
           // we may need to increment high watermark since ISR could be down to 1
