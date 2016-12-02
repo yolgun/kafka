@@ -41,7 +41,9 @@ class LogConfigTest {
     assertTrue(KafkaConfig.LogRetentionTimeMillisProp != null)
     assertTrue(LogConfig.configNames.forall { config =>
       val serverConfigOpt = LogConfig.serverConfigName(config)
-      serverConfigOpt.isDefined && (serverConfigOpt.get != null)
+      val res = serverConfigOpt.isDefined && (serverConfigOpt.get != null)
+      if (!res) println(serverConfigOpt)
+      res
     })
   }
 
@@ -118,6 +120,8 @@ class LogConfigTest {
       props.setProperty(name, value.toString)
       intercept[Exception] {
         LogConfig(props)
+
+        println("whu?")
       }
     })
   }
