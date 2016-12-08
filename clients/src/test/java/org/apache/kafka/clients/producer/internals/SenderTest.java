@@ -72,7 +72,7 @@ public class SenderTest {
         metricTags.put("client-id", CLIENT_ID);
         MetricConfig metricConfig = new MetricConfig().tags(metricTags);
         metrics = new Metrics(metricConfig, time);
-        accumulator = new RecordAccumulator(batchSize, 1024 * 1024, CompressionType.NONE, 0L, 0L, metrics, time);
+        accumulator = new RecordAccumulator(batchSize, 1024 * 1024, CompressionType.NONE, 0L, 0L, metrics, time, null);
         sender = new Sender(client,
                             metadata,
                             this.accumulator,
@@ -82,7 +82,7 @@ public class SenderTest {
                             MAX_RETRIES,
                             metrics,
                             time,
-                            REQUEST_TIMEOUT);
+                            REQUEST_TIMEOUT, null);
 
         metadata.update(cluster, time.milliseconds());
     }
@@ -141,7 +141,7 @@ public class SenderTest {
                                        maxRetries,
                                        m,
                                        time,
-                                       REQUEST_TIMEOUT);
+                                       REQUEST_TIMEOUT, null);
             // do a successful retry
             Future<RecordMetadata> future = accumulator.append(tp, 0L, "key".getBytes(), "value".getBytes(), null, MAX_BLOCK_TIMEOUT).future;
             sender.run(time.milliseconds()); // connect
@@ -193,7 +193,7 @@ public class SenderTest {
                 maxRetries,
                 m,
                 time,
-                REQUEST_TIMEOUT);
+                REQUEST_TIMEOUT, null);
 
             // Create a two broker cluster, with partition 0 on broker 0 and partition 1 on broker 1
             Cluster cluster1 = TestUtils.clusterWith(2, "test", 2);

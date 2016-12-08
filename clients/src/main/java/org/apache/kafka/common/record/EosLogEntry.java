@@ -53,7 +53,7 @@ public class EosLogEntry extends LogEntry.ShallowLogEntry {
     static final int EPOCH_OFFSET = PID_OFFSET + PID_LENGTH;
     static final int EPOCH_LENGTH = 2;
     static final int SEQUENCE_OFFSET = EPOCH_OFFSET + EPOCH_LENGTH;
-    static final int SEQUENCE_LENGTH = 4;
+    static final int SEQUENCE_LENGTH = 8;
 
     public static final int RECORDS_OFFSET = SEQUENCE_OFFSET + SEQUENCE_LENGTH;
 
@@ -274,7 +274,7 @@ public class EosLogEntry extends LogEntry.ShallowLogEntry {
                                           long timestamp,
                                           long pid,
                                           short epoch,
-                                          int sequence) {
+                                          long sequence) {
         byte attributes = computeAttributes(compressionType, timestampType);
         writeInPlaceHeader(buffer, offset, offsetDelta, size, magic, attributes, timestamp, pid, epoch, sequence);
     }
@@ -288,7 +288,7 @@ public class EosLogEntry extends LogEntry.ShallowLogEntry {
                                            long timestamp,
                                            long pid,
                                            short epoch,
-                                           int sequence) {
+                                           long sequence) {
         int position = buffer.position();
         buffer.putLong(position + OFFSET_OFFSET, offset);
         buffer.putInt(position + SIZE_OFFSET, size - LOG_OVERHEAD);
@@ -298,7 +298,7 @@ public class EosLogEntry extends LogEntry.ShallowLogEntry {
         buffer.putInt(position + OFFSET_DELTA_OFFSET, offsetDelta);
         buffer.putLong(position + PID_OFFSET, pid);
         buffer.putShort(position + EPOCH_OFFSET, epoch);
-        buffer.putInt(position + SEQUENCE_OFFSET, sequence);
+        buffer.putLong(position + SEQUENCE_OFFSET, sequence);
         long crc = Utils.computeChecksum(buffer, position + MAGIC_OFFSET, size - MAGIC_OFFSET);
         buffer.putInt(position + CRC_OFFSET, (int) (crc & 0xffffffffL));
     }
@@ -313,7 +313,7 @@ public class EosLogEntry extends LogEntry.ShallowLogEntry {
                                    long timestamp,
                                    long pid,
                                    short epoch,
-                                   int sequence) throws IOException {
+                                   long sequence) throws IOException {
         if (magic < 2)
             throw new IllegalArgumentException("Invalid magic value " + magic);
         if (timestamp < 0 && timestamp != NO_TIMESTAMP)
@@ -334,7 +334,7 @@ public class EosLogEntry extends LogEntry.ShallowLogEntry {
         // write (PID, epoch, sequence)
         out.writeLong(pid);
         out.writeShort(epoch);
-        out.writeInt(sequence);
+        out.writeLong(sequence);
     }
 
     @Override

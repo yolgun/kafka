@@ -306,7 +306,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
                                                  long baseOffset,
                                                  long pid,
                                                  short epoch,
-                                                 int baseSequence) {
+                                                 long baseSequence) {
         return new MemoryLogBufferBuilder(buffer, magic, compressionType, timestampType, baseOffset,
                 System.currentTimeMillis(), pid, epoch, baseSequence, buffer.capacity());
     }
