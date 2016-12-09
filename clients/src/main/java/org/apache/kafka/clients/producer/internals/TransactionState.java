@@ -51,13 +51,13 @@ public class TransactionState {
         return epoch;
     }
 
-    public synchronized void setPid(int pid) {
+    public void setPid(int pid) {
         if (this.pid == INVALID_PID) {
             this.pid = pid;
         }
     }
 
-    public synchronized void setEpoch(short epoch) {
+    public void setEpoch(short epoch) {
         if (this.epoch == 0) {
             this.epoch = epoch;
         }
