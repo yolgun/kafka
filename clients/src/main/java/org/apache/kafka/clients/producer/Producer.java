@@ -87,7 +87,7 @@ public interface Producer<K, V> extends Closeable {
      * @throws ProducerFencedException if another producer is with the same
      *         transaction.app.id is active.
      */
-    void abortTransaction() throws ProducerFencedException;
+    void abortTransaction();
 
 
     /**

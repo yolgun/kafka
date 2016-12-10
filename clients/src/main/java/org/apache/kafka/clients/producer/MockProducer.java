@@ -99,28 +99,28 @@ public class MockProducer<K, V> implements Producer<K, V> {
 
 
     @Override
-    public void initTransactions() throws IllegalStateException {
+    public void initTransactions() {
 
     }
 
     @Override
-    public void beginTransaction() throws ProducerFencedException {
+    public void beginTransaction() {
 
     }
 
     @Override
     public void sendOffsets(Map<TopicPartition, OffsetAndMetadata> offsets,
-                            String consumerGroupId) throws ProducerFencedException {
+                            String consumerGroupId) {
 
     }
 
     @Override
-    public void commitTransaction() throws ProducerFencedException {
+    public void commitTransaction() {
 
     }
 
     @Override
-    public void abortTransaction() throws ProducerFencedException {
+    public void abortTransaction() {
 
     }
 
