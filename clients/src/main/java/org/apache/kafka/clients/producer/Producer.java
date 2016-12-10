@@ -35,7 +35,6 @@ import org.apache.kafka.common.TopicPartition;
  * @see MockProducer
  */
 public interface Producer<K, V> extends Closeable {
-    public static final int INVALID_PID = Integer.MAX_VALUE;
 
     /**
      * Needs to be called before any of the other transaction methods. Assumes that
@@ -50,7 +49,7 @@ public interface Producer<K, V> extends Closeable {
      * @throws IllegalStateException if the appId for the producer is not set
      *         in the configuration.
      */
-    void initTransactions() throws IllegalStateException;
+    void initTransactions();
 
     /**
      * Should be called before the start of each new transaction.
@@ -58,7 +57,7 @@ public interface Producer<K, V> extends Closeable {
      * @throws ProducerFencedException if another producer is with the same
      *         transaction.app.id is active.
      */
-    void beginTransaction() throws ProducerFencedException;
+    void beginTransaction();
 
     /**
      * Sends a list of consumed offsets to the consumer group coordinator, and also marks
@@ -72,7 +71,7 @@ public interface Producer<K, V> extends Closeable {
      *         transaction.app.id is active.
      */
     void sendOffsets(Map<TopicPartition, OffsetAndMetadata> offsets,
-                     String consumerGroupId) throws ProducerFencedException;
+                     String consumerGroupId);
 
     /**
      * Commits the ongoing transaction.
@@ -80,7 +79,7 @@ public interface Producer<K, V> extends Closeable {
      * @throws ProducerFencedException if another producer is with the same
      *         transaction.app.id is active.
      */
-    void commitTransaction() throws ProducerFencedException;
+    void commitTransaction();
 
     /**
      * Aborts the ongoing transaction.

@@ -357,23 +357,23 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     }
 
     @Override
-    public void beginTransaction() throws ProducerFencedException {
+    public void beginTransaction() {
 
     }
 
     @Override
-    public void commitTransaction() throws ProducerFencedException {
+    public void commitTransaction() {
 
     }
 
     @Override
-    public void abortTransaction() throws ProducerFencedException {
+    public void abortTransaction() {
 
     }
 
     @Override
     public void sendOffsets(Map<TopicPartition, OffsetAndMetadata> offsets,
-                            String consumerGroupId) throws ProducerFencedException {
+                            String consumerGroupId) {
 
     }
     /**

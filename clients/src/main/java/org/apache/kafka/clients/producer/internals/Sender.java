@@ -171,8 +171,9 @@ public class Sender implements Runnable {
     void run(long now) {
         Cluster cluster = metadata.fetch();
         if (!transactionState.pidIsSet()) {
-            int pid = getPID();
+            long pid = getPID();
             transactionState.setPid(pid);
+
         }
 
         // get the list of partitions with data ready to send
@@ -256,10 +257,10 @@ public class Sender implements Runnable {
         initiateClose();
     }
 
-    private int getPID() {
+    private long getPID() {
         // Send an InitPIDRequest, wait for the response, retrieve the PID from the response if success. Return it.
         // Otherwise throw exception.
-        return 234343;
+        return 234343L;
 
     }
 

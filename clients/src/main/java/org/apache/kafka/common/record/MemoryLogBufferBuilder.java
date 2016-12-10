@@ -98,7 +98,7 @@ public class MemoryLogBufferBuilder {
     private final long logAppendTime;
     private final long pid;
     private final short epoch;
-    private final long baseSequence;
+    private final int baseSequence;
     private final int writeLimit;
 
     private MemoryLogBuffer builtLogBuffer;
@@ -117,7 +117,7 @@ public class MemoryLogBufferBuilder {
                                   long logAppendTime,
                                   long pid,
                                   short epoch,
-                                  long baseSequence,
+                                  int baseSequence,
                                   int writeLimit) {
         this.magic = magic;
         this.timestampType = timestampType;
