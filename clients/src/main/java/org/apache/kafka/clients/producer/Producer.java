@@ -99,7 +99,7 @@ public interface Producer<K, V> extends Closeable {
      * @throws UnrecognizedMessageException if the broker detects data loss: ie. previous messages which we expect
      *         to be committed are detected to be missing. This is a fatal error.
      */
-    public Future<RecordMetadata> send(ProducerRecord<K, V> record) throws UnrecognizedMessageException;
+    public Future<RecordMetadata> send(ProducerRecord<K, V> record);
 
     /**
      * Send a record and invoke the given callback when the record has been acknowledged by the server
@@ -107,7 +107,7 @@ public interface Producer<K, V> extends Closeable {
      * @throws UnrecognizedMessageException if the broker detects data loss: ie. previous messages which we expect
      *         to be committed are detected to be missing. This is a fatal error.
      */
-    public Future<RecordMetadata> send(ProducerRecord<K, V> record, Callback callback) throws UnrecognizedMessageException;
+    public Future<RecordMetadata> send(ProducerRecord<K, V> record, Callback callback);
     
     /**
      * Flush any accumulated records from the producer. Blocks until all sends are complete.
