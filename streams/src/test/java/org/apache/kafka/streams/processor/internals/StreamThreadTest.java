@@ -17,19 +17,6 @@
 
 package org.apache.kafka.streams.processor.internals;
 
-import java.io.File;
-import java.nio.ByteBuffer;
-import java.nio.file.Files;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
-import java.util.UUID;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.MockConsumer;
@@ -54,11 +41,24 @@ import org.apache.kafka.test.MockInternalTopicManager;
 import org.apache.kafka.test.MockProcessorSupplier;
 import org.apache.kafka.test.MockStateStoreSupplier;
 import org.apache.kafka.test.MockTimestampExtractor;
-import org.junit.Before;
 import org.apache.kafka.test.TestUtils;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
+import java.io.File;
+import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 import static org.hamcrest.CoreMatchers.equalTo;
@@ -67,10 +67,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-
-import static org.junit.Assert.assertThat;
 
 public class StreamThreadTest {
 
@@ -208,7 +207,7 @@ public class StreamThreadTest {
         builder.addProcessor("processor", new MockProcessorSupplier(), "source2", "source3");
 
 
-        MockClientSupplier mockClientSupplier = new MockClientSupplier();
+        final MockClientSupplier mockClientSupplier = new MockClientSupplier();
         StreamThread thread = new StreamThread(builder, config, mockClientSupplier, applicationId, clientId, processId, new Metrics(), Time.SYSTEM, new StreamsMetadataState(builder, StreamsMetadataState.UNKNOWN_HOST), 0) {
 
             @Override
@@ -216,7 +215,7 @@ public class StreamThreadTest {
 
                 ProcessorTopology topology = builder.build(id.topicGroupId);
                 return new TestStreamTask(id, applicationId, partitionsForTask, topology, consumer,
-                    producer, restoreConsumer, config, new MockStreamsMetrics(new Metrics()), stateDirectory);
+                    clientSupplier.getProducer(config.getProducerConfigs(clientId + "-" + getName())), restoreConsumer, config, new MockStreamsMetrics(new Metrics()), stateDirectory);
             }
         };
 
@@ -504,7 +503,7 @@ public class StreamThreadTest {
                 protected StreamTask createStreamTask(TaskId id, Collection<TopicPartition> partitionsForTask) {
                     ProcessorTopology topology = builder.build(id.topicGroupId);
                     return new TestStreamTask(id, applicationId, partitionsForTask, topology, consumer,
-                        producer, restoreConsumer, config, new MockStreamsMetrics(new Metrics()), stateDirectory);
+                        clientSupplier.getProducer(config.getProducerConfigs(clientId + "-" + getName())), restoreConsumer, config, new MockStreamsMetrics(new Metrics()), stateDirectory);
                 }
             };
 
@@ -634,7 +633,7 @@ public class StreamThreadTest {
                 protected StreamTask createStreamTask(TaskId id, Collection<TopicPartition> partitionsForTask) {
                     ProcessorTopology topology = builder.build(id.topicGroupId);
                     return new TestStreamTask(id, applicationId, partitionsForTask, topology, consumer,
-                        producer, restoreConsumer, config, new MockStreamsMetrics(new Metrics()), stateDirectory);
+                        clientSupplier.getProducer(config.getProducerConfigs(clientId + "-" + getName())), restoreConsumer, config, new MockStreamsMetrics(new Metrics()), stateDirectory);
                 }
             };
 
@@ -699,7 +698,6 @@ public class StreamThreadTest {
         StreamThread thread = new StreamThread(builder, config, clientSupplier, applicationId,
                                                clientId, processId, new Metrics(), new MockTime(), new StreamsMetadataState(builder, StreamsMetadataState.UNKNOWN_HOST),
                                                0);
-        assertSame(clientSupplier.producer, thread.producer);
         assertSame(clientSupplier.consumer, thread.consumer);
         assertSame(clientSupplier.restoreConsumer, thread.restoreConsumer);
     }
@@ -859,7 +857,7 @@ public class StreamThreadTest {
             protected StreamTask createStreamTask(final TaskId id, final Collection<TopicPartition> partitions) {
                 final ProcessorTopology topology = builder.build(id.topicGroupId);
                 final TestStreamTask task = new TestStreamTask(id, applicationId, partitions, topology, consumer,
-                    producer, restoreConsumer, config, new MockStreamsMetrics(new Metrics()), stateDirectory);
+                    clientSupplier.getProducer(config.getProducerConfigs(clientId + "-" + getName())), restoreConsumer, config, new MockStreamsMetrics(new Metrics()), stateDirectory);
                 createdTasks.put(partitions, task);
                 return task;
             }
@@ -910,7 +908,7 @@ public class StreamThreadTest {
                                                                  Utils.mkSet(new TopicPartition("t1", 0)),
                                                                  builder.build(0),
                                                                  clientSupplier.consumer,
-                                                                 clientSupplier.producer,
+                                                                 clientSupplier.getProducer(config.getProducerConfigs(clientId)),
                                                                  clientSupplier.restoreConsumer,
                                                                  config,
                                                                  new MockStreamsMetrics(new Metrics()),
@@ -962,7 +960,7 @@ public class StreamThreadTest {
                                                                  Utils.mkSet(new TopicPartition("t1", 0)),
                                                                  builder.build(0),
                                                                  clientSupplier.consumer,
-                                                                 clientSupplier.producer,
+                                                                 clientSupplier.getProducer(config.getProducerConfigs(clientId)),
                                                                  clientSupplier.restoreConsumer,
                                                                  config,
                                                                  new MockStreamsMetrics(new Metrics()),
@@ -1014,7 +1012,7 @@ public class StreamThreadTest {
                                                                  Utils.mkSet(new TopicPartition("t1", 0)),
                                                                  builder.build(0),
                                                                  clientSupplier.consumer,
-                                                                 clientSupplier.producer,
+                                                                 clientSupplier.getProducer(config.getProducerConfigs(clientId)),
                                                                  clientSupplier.restoreConsumer,
                                                                  config,
                                                                  new MockStreamsMetrics(new Metrics()),
@@ -1065,7 +1063,7 @@ public class StreamThreadTest {
                                                                  Utils.mkSet(new TopicPartition("t1", 0)),
                                                                  builder.build(0),
                                                                  clientSupplier.consumer,
-                                                                 clientSupplier.producer,
+                                                                 clientSupplier.getProducer(config.getProducerConfigs(clientId)),
                                                                  clientSupplier.restoreConsumer,
                                                                  config,
                                                                  new MockStreamsMetrics(new Metrics()),

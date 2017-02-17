@@ -180,7 +180,8 @@ public class StreamThread extends Thread {
 
     protected final StreamsConfig config;
     protected final TopologyBuilder builder;
-    protected final Producer<byte[], byte[]> producer;
+    protected final KafkaClientSupplier clientSupplier;
+    protected final List<Producer<byte[], byte[]>> producers = new ArrayList<>();
     protected final Consumer<byte[], byte[]> consumer;
     protected final Consumer<byte[], byte[]> restoreConsumer;
 
@@ -291,6 +292,7 @@ public class StreamThread extends Thread {
         String threadName = getName();
         this.config = config;
         this.builder = builder;
+        this.clientSupplier = clientSupplier;
         this.sourceTopicPattern = builder.sourceTopicPattern();
         this.clientId = clientId;
         this.processId = processId;
@@ -307,11 +309,8 @@ public class StreamThread extends Thread {
 
         this.logPrefix = String.format("stream-thread [%s]", threadName);
 
-        // set the producer and consumer clients
-        log.info("{} Creating producer client", logPrefix);
-        this.producer = clientSupplier.getProducer(config.getProducerConfigs(threadClientId));
+        // set consumer clients
         log.info("{} Creating consumer client", logPrefix);
-
         Map<String, Object> consumerConfigs = config.getConsumerConfigs(this, applicationId, threadClientId);
 
         if (!builder.latestResetTopicsPattern().pattern().equals("") || !builder.earliestResetTopicsPattern().pattern().equals("")) {
@@ -398,10 +397,12 @@ public class StreamThread extends Thread {
         shutdownTasksAndState();
 
         // close all embedded clients
-        try {
-            producer.close();
-        } catch (Throwable e) {
-            log.error("{} Failed to close producer: ", logPrefix, e);
+        for (final Producer<byte[], byte[]> producer : producers ) {
+            try {
+                producer.close();
+            } catch (Throwable e) {
+                log.error("{} Failed to close producer: ", logPrefix, e);
+            }
         }
         try {
             consumer.close();
@@ -830,6 +831,8 @@ public class StreamThread extends Thread {
         streamsMetrics.taskCreatedSensor.record();
 
         final ProcessorTopology topology = builder.build(id.topicGroupId);
+        final Producer<byte[], byte[]> producer = clientSupplier.getProducer(config.getProducerConfigs(threadClientId));
+        producers.add(producer);
         final RecordCollector recordCollector = new RecordCollectorImpl(producer, id.toString());
         return new StreamTask(id, applicationId, partitions, topology, consumer, restoreConsumer, config, streamsMetrics, stateDirectory, cache, time, recordCollector);
     }
