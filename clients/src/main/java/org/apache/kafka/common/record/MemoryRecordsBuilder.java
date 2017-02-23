@@ -443,6 +443,10 @@ public class MemoryRecordsBuilder {
         return builtRecords != null ? builtRecords.sizeInBytes() : estimatedBytesWritten();
     }
 
+    public byte magic() {
+        return magic;
+    }
+
     public static class RecordsInfo {
         public final long maxTimestamp;
         public final long shallowOffsetOfMaxTimestamp;
