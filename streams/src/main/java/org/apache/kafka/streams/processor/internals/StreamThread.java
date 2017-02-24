@@ -831,7 +831,7 @@ public class StreamThread extends Thread {
         streamsMetrics.taskCreatedSensor.record();
 
         final ProcessorTopology topology = builder.build(id.topicGroupId);
-        final Producer<byte[], byte[]> producer = clientSupplier.getProducer(config.getProducerConfigs(threadClientId));
+        final Producer<byte[], byte[]> producer = clientSupplier.getProducer(config.getProducerConfigs(threadClientId + "-" + id));
         producers.add(producer);
         final RecordCollector recordCollector = new RecordCollectorImpl(producer, id.toString());
         return new StreamTask(id, applicationId, partitions, topology, consumer, restoreConsumer, config, streamsMetrics, stateDirectory, cache, time, recordCollector);
