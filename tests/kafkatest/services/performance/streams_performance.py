@@ -37,4 +37,8 @@ class StreamsSimpleBenchmarkService(StreamsTestBaseService):
         for line in output:
             parts = line.split(':')
             data[tag + parts[0]] = parts[1]
+        output = node.account.ssh_capture("grep Producer %s" % self.STDOUT_FILE)
+        for line in output:
+            parts = line.split(':')
+            data[tag + parts[0]] = parts[1]
         return data
