@@ -56,6 +56,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.Properties;
 import java.util.Random;
 
+import javax.management.MBeanServer;
+import javax.management.ObjectName;
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
+import java.lang.management.MemoryUsage;
+
 /**
  * Class that provides support for a series of benchmarks. It is usually driven by
  * tests/kafkatest/benchmarks/streams/streams_simple_benchmark_test.py.
@@ -352,6 +358,8 @@ public class SimpleBenchmark {
         long endTime = System.currentTimeMillis();
         printResults(nameOfBenchmark, endTime - startTime);
 
+        printJMX(streams);
+
         streams.close();
     }
 
@@ -375,6 +383,8 @@ public class SimpleBenchmark {
 
         long endTime = System.currentTimeMillis();
 
+        printJMX(streams);
+
         streams.close();
         try {
             thread.join();
@@ -383,6 +393,43 @@ public class SimpleBenchmark {
         }
 
         return endTime - startTime;
+    }
+
+    private void printJMX(final KafkaStreams streams) {
+        try {
+            final MBeanServer jmxServer = ManagementFactory.getPlatformMBeanServer();
+            final MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
+
+            MemoryUsage usage = memoryMXBean.getHeapMemoryUsage();
+            System.out.println("Heap Memory : ");
+            System.out.println("   Max : " + usage.getMax() / 1024000 + "MB");
+            System.out.println("   Used: " + usage.getUsed() / 1024000 + "MB");
+            System.out.println();
+
+            usage = memoryMXBean.getNonHeapMemoryUsage();
+            System.out.println("Non-Heap Memory : ");
+            System.out.println("   Max : " + usage.getMax() / 1024000 + "MB");
+            System.out.println("   Used: " + usage.getUsed() / 1024000 + "MB");
+            System.out.println();
+
+            String pid = null;
+            String appId = null;
+            for (String line : streams.toString().split("\n")) {
+                if (line.contains("processID")) {
+                    pid = line.split(":")[1].trim();
+                }
+                if (line.contains("appId")) {
+                    appId = line.split(":")[1].trim();
+                }
+                if (line.contains("taskId")) {
+                    final String tid = line.split(":")[1].trim();
+                    final ObjectName name =  new ObjectName("kafka.producer:type=producer-metrics,client-id=" + appId + "-" + pid + "-StreamThread-1-" + tid + "-producer");
+                    System.out.println("Producer batch-size-avg: " + jmxServer.getAttribute(name, "batch-size-avg"));
+                }
+            }
+        } catch (final Exception e) {
+            e.printStackTrace();
+        }
     }
 
     public void processStream(final String topic) throws Exception {
