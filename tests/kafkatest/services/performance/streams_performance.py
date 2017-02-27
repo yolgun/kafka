@@ -32,13 +32,26 @@ class StreamsSimpleBenchmarkService(StreamsTestBaseService):
 
     def collect_data(self, node, tag = None):
         # Collect the data and return it to the framework
-        output = node.account.ssh_capture("grep Performance %s" % self.STDOUT_FILE)
         data = {}
+
+        output = node.account.ssh_capture("grep Performance %s" % self.STDOUT_FILE)
         for line in output:
             parts = line.split(':')
             data[tag + parts[0]] = parts[1]
+
+        output = node.account.ssh_capture("grep -e '^Heap Memory' %s" % self.STDOUT_FILE)
+        for line in output:
+            parts = line.split(':')
+            data[tag + parts[0]] = parts[1]
+
+        output = node.account.ssh_capture("grep 'Non-Heap Memory' %s" % self.STDOUT_FILE)
+        for line in output:
+            parts = line.split(':')
+            data[tag + parts[0]] = parts[1]
+
         output = node.account.ssh_capture("grep Producer %s" % self.STDOUT_FILE)
         for line in output:
             parts = line.split(':')
             data[tag + parts[0]] = parts[1]
+
         return data

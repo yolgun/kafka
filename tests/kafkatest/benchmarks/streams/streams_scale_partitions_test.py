@@ -77,8 +77,6 @@ class StreamsScalePartitionsTest(Test):
             self.driver[num].wait(100000000)
             self.driver[num].stop()
             node[num] = self.driver[num].node
-            node[num].account.ssh("grep Performance %s" % self.driver[num].STDOUT_FILE, allow_fail=False)
-            node[num].account.ssh("grep Producer %s" % self.driver[num].STDOUT_FILE, allow_fail=False)
             data[num] = self.driver[num].collect_data(node[num], "" )
                 
 

@@ -401,16 +401,10 @@ public class SimpleBenchmark {
             final MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
 
             MemoryUsage usage = memoryMXBean.getHeapMemoryUsage();
-            System.out.println("Heap Memory : ");
-            System.out.println("   Max : " + usage.getMax() / 1024000 + "MB");
-            System.out.println("   Used: " + usage.getUsed() / 1024000 + "MB");
-            System.out.println();
+            System.out.println("Heap Memory Max: " + usage.getMax() / 1024000 + " MB");
 
             usage = memoryMXBean.getNonHeapMemoryUsage();
-            System.out.println("Non-Heap Memory : ");
-            System.out.println("   Max : " + usage.getMax() / 1024000 + "MB");
-            System.out.println("   Used: " + usage.getUsed() / 1024000 + "MB");
-            System.out.println();
+            System.out.println("Non-Heap Memory Max: " + usage.getMax() / 1024000 + " MB");
 
             String pid = null;
             String appId = null;
@@ -421,12 +415,9 @@ public class SimpleBenchmark {
                 if (line.contains("appId")) {
                     appId = line.split(":")[1].trim();
                 }
-                if (line.contains("taskId")) {
-                    final String tid = line.split(":")[1].trim();
-                    final ObjectName name =  new ObjectName("kafka.producer:type=producer-metrics,client-id=" + appId + "-" + pid + "-StreamThread-1-" + tid + "-producer");
-                    System.out.println("Producer batch-size-avg: " + jmxServer.getAttribute(name, "batch-size-avg"));
-                }
             }
+            final ObjectName name =  new ObjectName("kafka.producer:type=producer-metrics,client-id=" + appId + "-" + pid + "-StreamThread-1-producer");
+            System.out.println("Producer batch-size-avg: " + jmxServer.getAttribute(name, "batch-size-avg"));
         } catch (final Exception e) {
             e.printStackTrace();
         }
