@@ -34,7 +34,7 @@ class StreamsScalePartitionsTest(Test):
 
 
     @cluster(num_nodes=21)
-    @matrix(scale=[5], num_partitions=[10, 30, 50, 70, 90])
+    @matrix(scale=[1], num_partitions=[1])
     def test_scale_partitions(self, scale, num_partitions):
         """
         Run simple Kafka Streams benchmark
@@ -49,6 +49,7 @@ class StreamsScalePartitionsTest(Test):
         self.zk = ZookeeperService(self.test_context, num_nodes=1)
         self.zk.start()
         self.kafka = KafkaService(self.test_context, num_nodes=scale, zk=self.zk, version=DEV_BRANCH, topics={
+            'simpleBenchmarkSourceTopic' : { 'partitions': num_partitions, 'replication-factor': self.replication },
             'simpleBenchmarkSinkTopic' : { 'partitions': num_partitions, 'replication-factor': self.replication }
         })
         self.kafka.start()
