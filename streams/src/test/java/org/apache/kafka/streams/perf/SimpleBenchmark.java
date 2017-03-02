@@ -50,11 +50,13 @@ import org.apache.kafka.test.TestUtils;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.Properties;
 import java.util.Random;
+import java.util.Set;
 
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
@@ -408,6 +410,7 @@ public class SimpleBenchmark {
 
             String pid = null;
             String appId = null;
+            String tid = null;
             for (String line : streams.toString().split("\n")) {
                 if (line.contains("processID")) {
                     pid = line.split(":")[1].trim();
@@ -415,9 +418,12 @@ public class SimpleBenchmark {
                 if (line.contains("appId")) {
                     appId = line.split(":")[1].trim();
                 }
+                if (line.contains("taskId")) {
+                    tid = line.split(":")[1].trim();
+                    final ObjectName name =  new ObjectName("kafka.producer:type=producer-metrics,client-id=" + appId + "-" + pid + "-StreamThread-1-" + tid + "-producer");
+                    System.out.println("Producer " + tid + " batch-size-avg: " + jmxServer.getAttribute(name, "batch-size-avg"));
+                }
             }
-            final ObjectName name =  new ObjectName("kafka.producer:type=producer-metrics,client-id=" + appId + "-" + pid + "-StreamThread-1-producer");
-            System.out.println("Producer batch-size-avg: " + jmxServer.getAttribute(name, "batch-size-avg"));
         } catch (final Exception e) {
             e.printStackTrace();
         }
@@ -445,8 +451,22 @@ public class SimpleBenchmark {
         final KafkaStreams streams = createKafkaStreamsWithSink(topic, latch);
         long latency = startStreamsThread(streams, latch);
 
-        printResults("Streams Performance [records/latency/rec-sec/MB-sec source+sink]: ", latency);
+        final Properties config = new Properties();
+        config.setProperty(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka);
+        config.setProperty(ConsumerConfig.GROUP_ID_CONFIG, "simple-benchmark-verify-consumer");
+        config.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
 
+        try(KafkaConsumer consumer = new KafkaConsumer(config, new ByteArrayDeserializer(), new ByteArrayDeserializer())) {
+            consumer.subscribe(Collections.singleton(SINK_TOPIC));
+            consumer.poll(1);
+
+            final Set<TopicPartition> partitions = consumer.assignment();
+            System.out.println(consumer.beginningOffsets(partitions));
+            System.out.println();
+            System.out.println(consumer.endOffsets(partitions));
+        }
+
+        printResults("Streams Performance [records/latency/rec-sec/MB-sec source+sink]: ", latency);
     }
 
     public void processStreamWithStateStore(String topic) throws Exception {
@@ -457,8 +477,8 @@ public class SimpleBenchmark {
         CountDownLatch latch = new CountDownLatch(1);
         final KafkaStreams streams = createKafkaStreamsWithStateStore(topic, latch, false);
         long latency = startStreamsThread(streams, latch);
-        printResults("Streams Performance [records/latency/rec-sec/MB-sec source+store]: ", latency);
 
+        printResults("Streams Performance [records/latency/rec-sec/MB-sec source+store]: ", latency);
     }
 
     public void processStreamWithCachedStateStore(String topic) throws Exception {
@@ -469,6 +489,7 @@ public class SimpleBenchmark {
         CountDownLatch latch = new CountDownLatch(1);
         final KafkaStreams streams = createKafkaStreamsWithStateStore(topic, latch, true);
         long latency = startStreamsThread(streams, latch);
+
         printResults("Streams Performance [records/latency/rec-sec/MB-sec source+cache+store]: ", latency);
     }
 
