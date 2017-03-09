@@ -337,11 +337,16 @@ object DumpLogSegments {
           println()
         }
       } else {
-        println("offset: " + entry.lastOffset + " position: " + validBytes +
+        var entryStr = "offset: " + entry.baseOffset + " position: " + validBytes +
           " " + entry.timestampType + ": " + entry.maxTimestamp + " isvalid: " + entry.isValid +
           " size: " + entry.sizeInBytes + " magic: " + entry.magic +
-          " pid: " + entry.pid + " epoch: " + entry.epoch + " lastsequence: " + entry.lastSequence +
-          " compresscodec: " + entry.compressionType + " crc: " + entry.checksum)
+         " compresscodec: " + entry.compressionType + " crc: " + entry.checksum
+
+        if (entry.magic() >= LogEntry.MAGIC_VALUE_V2) {
+          entryStr += s" pid: ${entry.pid()} firstSequence: ${entry.baseSequence}, lastSequence: ${entry.lastSequence}"
+        }
+
+        println(entryStr)
       }
       validBytes += entry.sizeInBytes
     }
