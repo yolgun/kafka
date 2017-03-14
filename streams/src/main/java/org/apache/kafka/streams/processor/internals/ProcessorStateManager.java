@@ -106,6 +106,7 @@ public class ProcessorStateManager implements StateManager {
         OffsetCheckpoint checkpoint = new OffsetCheckpoint(new File(this.baseDir, CHECKPOINT_FILE_NAME));
         this.checkpointedOffsets = new HashMap<>(checkpoint.read());
 
+        log.info("{} Created state store manager for task {} with the acquired state dir lock", logPrefix, taskId);
         // delete the checkpoint file after finish loading its stored offsets
         checkpoint.delete();
     }
