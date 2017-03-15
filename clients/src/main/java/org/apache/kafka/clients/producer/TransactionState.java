@@ -22,7 +22,7 @@ import org.apache.kafka.common.utils.Time;
 import java.util.HashMap;
 import java.util.Map;
 
-import static org.apache.kafka.common.record.LogEntry.NO_PID;
+import static org.apache.kafka.common.record.RecordBatch.NO_PID;
 
 /**
  * A class which maintains state for transactions. Also keeps the state necessary to ensure idempotent production.

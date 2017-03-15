@@ -337,15 +337,15 @@ public class MemoryRecords extends AbstractRecords {
     }
 
     public static MemoryRecords withRecords(long initialOffset, CompressionType compressionType, Long pid,
-                                            short epoch, int baseSequence, KafkaRecord ... records) {
-        return withRecords(LogEntry.CURRENT_MAGIC_VALUE, initialOffset, compressionType, pid, epoch, baseSequence,
+                                            short epoch, int baseSequence, SimpleRecord... records) {
+        return withRecords(RecordBatch.CURRENT_MAGIC_VALUE, initialOffset, compressionType, pid, epoch, baseSequence,
                 records);
     }
 
     public static MemoryRecords withRecords(byte magic, long initialOffset, CompressionType compressionType,
                                             TimestampType timestampType, SimpleRecord... records) {
-        return withRecords(magic, initialOffset, compressionType, LogEntry.NO_PID, LogEntry.NO_EPOCH,
-                LogEntry.NO_SEQUENCE, records);
+        return withRecords(magic, initialOffset, compressionType, RecordBatch.NO_PID, RecordBatch.NO_EPOCH,
+                RecordBatch.NO_SEQUENCE, records);
     }
 
     private static MemoryRecords withRecords(byte magic, long initialOffset, CompressionType compressionType,

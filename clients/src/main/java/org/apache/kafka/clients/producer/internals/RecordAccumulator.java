@@ -229,7 +229,7 @@ public final class RecordAccumulator {
     }
 
     private MemoryRecordsBuilder getRecordsBuilder(ByteBuffer buffer, byte maxUsableMagic, TopicPartition topicPartition) {
-        if (transactionState != null && maxUsableMagic < LogEntry.MAGIC_VALUE_V2) {
+        if (transactionState != null && maxUsableMagic < RecordBatch.MAGIC_VALUE_V2) {
             throw new IllegalStateException("Attempting to use idempotence with an incompatible version of the message format");
         }
         return MemoryRecords.builder(buffer, maxUsableMagic, compression, TimestampType.CREATE_TIME, this.batchSize);

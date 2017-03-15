@@ -22,7 +22,7 @@ import org.apache.kafka.common.protocol.types.Struct;
 
 import java.nio.ByteBuffer;
 
-import static org.apache.kafka.common.record.LogEntry.NO_PID;
+import static org.apache.kafka.common.record.RecordBatch.NO_PID;
 
 public class InitPidResponse extends AbstractResponse {
     private static final String PRODUCER_ID_KEY_NAME = "pid";

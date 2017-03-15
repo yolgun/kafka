@@ -342,7 +342,7 @@ object DumpLogSegments {
           " size: " + entry.sizeInBytes + " magic: " + entry.magic +
          " compresscodec: " + entry.compressionType + " crc: " + entry.checksum
 
-        if (entry.magic() >= LogEntry.MAGIC_VALUE_V2) {
+        if (entry.magic() >= RecordBatch.MAGIC_VALUE_V2) {
           entryStr += s" pid: ${entry.pid()} firstSequence: ${entry.baseSequence}, lastSequence: ${entry.lastSequence}"
         }
 
