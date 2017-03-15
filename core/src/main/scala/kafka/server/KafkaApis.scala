@@ -1318,11 +1318,11 @@ class KafkaApis(val requestChannel: RequestChannel,
     throw new UnsupportedOperationException
   }
 
-  def handleWriteTxnMarkerRequest(request): Unit = {
+  def handleWriteTxnMarkerRequest(request: Request): Unit = {
     throw new UnsupportedOperationException
   }
 
-  def handleTxnOffsetCommitRequest(request): Unit = {
+  def handleTxnOffsetCommitRequest(request: Request): Unit = {
     throw new UnsupportedOperationException
   }
 
