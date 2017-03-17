@@ -236,7 +236,7 @@ public class StreamThread extends Thread {
                         Time time,
                         StreamsMetadataState streamsMetadataState,
                         final long cacheSizeBytes) {
-        super("StreamThread-" + STREAM_THREAD_ID_SEQUENCE.getAndIncrement());
+        super("YNS1StreamThread-" + STREAM_THREAD_ID_SEQUENCE.getAndIncrement());
         this.applicationId = applicationId;
         String threadName = getName();
         this.config = config;
