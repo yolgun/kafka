@@ -277,7 +277,7 @@ subprojects {
     // version 7.x requires Java 8
     toolVersion = '6.19'
   }
-  test.dependsOn('checkstyleMain', 'checkstyleTest')
+//  test.dependsOn('checkstyleMain', 'checkstyleTest')
 
   findbugs {
     toolVersion = "3.0.1"

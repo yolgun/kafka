@@ -30,6 +30,9 @@ import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -89,6 +92,34 @@ public class StateDirectoryTest {
             // pass
         }
 
+    }
+
+    class Mocked implements Callable<Boolean> {
+        private TaskId taskId;
+
+        public Mocked(TaskId taskId) {
+            this.taskId = taskId;
+        }
+
+        @Override
+        public Boolean call() throws Exception {
+            StateDirectory stateDirectory = new StateDirectory(applicationId, stateDir.getPath(), time);
+            return stateDirectory.lock(taskId, 5);
+        }
+    }
+
+    @Test
+    public void shouldNotLockTaskStateDirectoryThread() throws Exception {
+        final TaskId taskId = new TaskId(0, 0);
+//        final File taskDirectory = directory.directoryForTask(taskId);
+
+        Mocked r0 = new Mocked(taskId);
+        Mocked r1 = new Mocked(taskId);
+
+        ExecutorService executorService = Executors.newFixedThreadPool(2);
+        boolean a0 = executorService.submit(r0).get();
+        boolean a1 = executorService.submit(r1).get();
+        assertTrue("Only one should be true but " + a0 + " and " + a1, a0 ^ a1);
     }
 
     @Test
