@@ -99,7 +99,6 @@ public class StoreChangelogReader implements ChangelogReader {
             }
             final Map<TopicPartition, Long> endOffsets = consumer.endOffsets(stateRestorers.keySet());
 
-
             // remove any partitions where we already have all of the data
             final Map<TopicPartition, StateRestorer> needsRestoring = new HashMap<>();
             for (final TopicPartition topicPartition : endOffsets.keySet()) {
@@ -110,6 +109,8 @@ public class StoreChangelogReader implements ChangelogReader {
                     needsRestoring.put(topicPartition, restorer);
                 }
             }
+
+            log.info("Starting restoring state stores from changelog topics {}", needsRestoring.keySet());
 
             consumer.assign(needsRestoring.keySet());
 

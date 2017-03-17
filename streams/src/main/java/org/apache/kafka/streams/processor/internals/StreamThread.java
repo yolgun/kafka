@@ -735,6 +735,8 @@ public class StreamThread extends Thread {
             throw e;
         }
 
+        log.debug("{} Committed task {} {}", logPrefix, task.getClass().getSimpleName(), task.id());
+
         streamsMetrics.commitTimeSensor.record(computeLatency(), timerStartedMs);
     }
 
@@ -894,7 +896,7 @@ public class StreamThread extends Thread {
         taskCreator.retryWithBackoff(newTasks);
     }
 
-    StandbyTask createStandbyTask(TaskId id, Collection<TopicPartition> partitions) {
+    private StandbyTask createStandbyTask(TaskId id, Collection<TopicPartition> partitions) {
         log.info("{} Creating new standby task {} with assigned partitions [{}]", logPrefix, id, partitions);
 
         streamsMetrics.taskCreatedSensor.record();
@@ -999,7 +1001,7 @@ public class StreamThread extends Thread {
         return performOnAllTasks(new AbstractTaskAction() {
             @Override
             public void apply(final AbstractTask task) {
-                log.info("{} Closing a task {}", StreamThread.this.logPrefix, task.id());
+                log.info("{} Closing task {}", StreamThread.this.logPrefix, task.id());
                 task.close();
                 streamsMetrics.tasksClosedSensor.record();
             }
@@ -1010,7 +1012,7 @@ public class StreamThread extends Thread {
         return performOnAllTasks(new AbstractTaskAction() {
             @Override
             public void apply(final AbstractTask task) {
-                log.info("{} Closing a task's topology {}", StreamThread.this.logPrefix, task.id());
+                log.info("{} Closing task {}'s topology", StreamThread.this.logPrefix, task.id());
                 task.closeTopology();
                 streamsMetrics.tasksClosedSensor.record();
             }
@@ -1160,8 +1162,8 @@ public class StreamThread extends Thread {
 
     class TaskCreator extends AbstractTaskCreator {
         void createTask(final TaskId taskId, final Set<TopicPartition> partitions) {
-            log.debug("{} creating new task {}", logPrefix, taskId);
             final StreamTask task = createStreamTask(taskId, partitions);
+            log.debug("{} Created new active task {}", logPrefix, taskId);
 
             activeTasks.put(taskId, task);
 
@@ -1179,8 +1181,8 @@ public class StreamThread extends Thread {
         }
 
         void createTask(final TaskId taskId, final Set<TopicPartition> partitions) {
-            log.debug("{} creating new standby task {}", logPrefix, taskId);
             final StandbyTask task = createStandbyTask(taskId, partitions);
+            log.debug("{} Created new standby task {}", logPrefix, taskId);
             updateStandByTaskMaps(checkpointedOffsets, taskId, partitions, task);
         }
     }
